@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Longma · Cognitive Surface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./src/ui/brain-ui/styles.css">
+<script src="/vendor/d3/d3.min.js"></script>
+</head>
+<body>
+<script type="module" src="./src/ui/brain-ui/app.js"></script>
+
+<script>
+// Global copy handler: ensure Ctrl+C works with contextIsolation
+document.addEventListener('copy', function(e) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return;
+  const text = sel.toString();
+  if (!text) return;
+  if (window.bailongma && window.bailongma.copyText) {
+    e.preventDefault();
+    window.bailongma.copyText(text);
+  }
+});
+// Right-click context menu for chat messages
+document.addEventListener('contextmenu', function(e) {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed) return;
+  // Let the default context menu show — Electron handles copy natively
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+    "provider": "custom",
+    "apiKey": "none",
+    "model": "Llama3.3-8B-Instruct-Thinking-Heretic-Uncensored-Claude-4.5-Opus-High-Reasoning.Q4_K_M.gguf",
+    "baseURL": "http://127.0.0.1:8090/v1",
+    "activatedAt": "2026-06-23T13:05:19.551Z"
+}
