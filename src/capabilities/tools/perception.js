@@ -10,6 +10,7 @@ function runPython(script, args = []) {
   return new Promise((resolve, reject) => {
     const python = spawn('python', [path.join(PERCEPTION_DIR, script), ...args], {
       cwd: PERCEPTION_DIR,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
       timeout: 30000
     })
     let stdout = ''
@@ -68,3 +69,4 @@ export async function execGetClipboard(_args) {
     return { ok: false, error: e.message }
   }
 }
+
