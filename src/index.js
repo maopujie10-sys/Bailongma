@@ -43,14 +43,6 @@ import { collectTrending, getTrendingBlock } from './trending.js'
 import { collectAgents, buildAgentContextBlock, buildDelegationAskDirections } from './agents/registry.js'
 import { dispatchToArmy, probeArmyEngines } from './agents/army-adapter.js'
 import { refreshSkills, selectSkillsForMessage, formatSkillsForContext } from './skills/registry.js'
-
-// ─── Hermes v0.17.0 能力移植模块 ───
-import { ACPRouter, MemoryTransport } from './acp/router.js'
-import { getPluginRegistry } from './capabilities/marketplace/plugin-registry.js'
-import { EvolutionScheduler } from './skills/self-evolution.js'
-import { PriorityMessageQueue, ChannelHealthChecker } from './social/gateway-enhancements.js'
-import { HybridRetriever, ContextWindowOptimizer } from './context/hybrid-retriever.js'
-import { ChromaDBProvider, MemoryCompressor, ProviderFusion } from './memory/memory-enhancements.js'
 import { learnSkill, isLearnCommand, extractLearnDescription } from './skills/learn.js'
 import { tryAutoConfigureKey } from './key-auto-config.js'
 import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalChannel } from './identity.js'
@@ -65,19 +57,19 @@ import { refreshUserProfile } from './profile/infer.js'
 seedSandboxOnce()
 seedMusicOnce()
 
-// 瀹夊叏鎶ゆ爮锛氭妸鍘嗗彶涓婅钀藉湪瀹夎鐩綍閲岀殑宸ヤ綔鏂囦欢杩佸洖 sandbox锛堥伩鍏嶄笅娆℃洿鏂伴殢瀹夎鐩綍琚竻绌猴級銆?
-// 杩佺Щ鍙戠敓鍚庣敤绮樻€т簨浠跺憡璀︼紝鍓嶇杩炰笂鍗冲彲鐪嬪埌鎻愮ず銆?
+// 安全护栏：把历史上误落在安装目录里的工作文件迁回 sandbox（避免下次更新随安装目录被清空）。
+// 迁移发生后用粘性事件告警，前端连上即可看到提示。
 try {
   const rescuedDirs = rescueDataFromInstallDir()
   if (rescuedDirs.length > 0) {
     setStickyEvent('install_dir_rescue', {
       level: 'warning',
       dirs: rescuedDirs,
-      message: `妫€娴嬪埌 ${rescuedDirs.length} 涓伐浣滅洰褰曞師鍏堝瓨鏀惧湪绋嬪簭瀹夎鐩綍閲岋紙鏇存柊鏃朵細琚竻绌猴級锛屽凡鑷姩杩佺Щ鍒?sandbox锛?{rescuedDirs.join('銆?)}`,
+      message: `检测到 ${rescuedDirs.length} 个工作目录原先存放在程序安装目录里（更新时会被清空），已自动迁移到 sandbox：${rescuedDirs.join('、')}`,
     })
   }
 } catch (err) {
-  console.warn('[startup] 瀹夎鐩綍鏁版嵁杩佺Щ妫€鏌ュけ璐?', err?.message || err)
+  console.warn('[startup] 安装目录数据迁移检查失败:', err?.message || err)
 }
 
 // Collect host system environment info (full scan + persist on first run, then refresh dynamic fields).
@@ -91,14 +83,14 @@ collectDesktopInfo(getDesktopPath())
 collectInstalledSoftware()
 
 // Scan the user's local resources (ssh hosts, keys, known_hosts, git identity)
-// for the "Self-Sufficient Execution" prompt 鈥?so the agent already knows what
-// the user has before being asked "涓婃湇鍔″櫒鐪嬬湅".
+// for the "Self-Sufficient Execution" prompt — so the agent already knows what
+// the user has before being asked "上服务器看看".
 collectLocalResources()
 
 // Collect geo-location + live weather (refresh on IP change or after 7 days; weather refreshed every time)
 const geoResult = await collectGeoWeather()
 
-// Collect trending topics (CN 鈫?Weibo+Zhihu, others 鈫?HN+Reddit; 1h cache)
+// Collect trending topics (CN → Weibo+Zhihu, others → HN+Reddit; 1h cache)
 await collectTrending(geoResult?.location?.country_code)
 
 // Scan locally installed AI agents (Claude Code, Codex, Hermes, OpenClaw, etc.) and persist to known_agents table
@@ -111,50 +103,14 @@ await loadInstalledTools()
 const startupSkills = refreshSkills()
 console.log(`[skills] Loaded ${startupSkills.length} Agent Skill(s)`)
 
-// ACP
-const acpRouter = new ACPRouter({ agentId: 'bailongma', agentName: 'Bailongma', capabilities: ['memory','context','skills','perception','execution','communication'] })
-const memTransport = new MemoryTransport()
-acpRouter.registerTransport(memTransport)
-acpRouter.start()
-console.log('[acp] ACP Router started')
-
-// Plugin registry
-const pluginRegistry = getPluginRegistry()
-console.log('[plugins] Plugin registry initialized')
-
-// Self-evolution scheduler
-const evolutionScheduler = new EvolutionScheduler({ callLLM, skillsDir: null, intervalMs: 21600000 })
-evolutionScheduler.start()
-console.log('[evolution] Self-evolution scheduler started')
-
-// Priority message queue
-const messageQueue = new PriorityMessageQueue({ maxSize: 1000 })
-messageQueue.startFlushing()
-console.log('[gateway] Priority message queue started')
-
-// Channel health checker
-const healthChecker = new ChannelHealthChecker({ intervalMs: 30000 })
-healthChecker.start()
-console.log('[gateway] Channel health checker started')
-
-// ChromaDB provider
-const chromaProvider = new ChromaDBProvider({ collectionName: 'bailongma_memories' })
-try {
-  const { registerMemoryProvider } = await import('./memory/provider-registry.js')
-  registerMemoryProvider('chromadb', chromaProvider)
-  console.log('[memory] ChromaDB provider registered')
-} catch (e) {
-  console.warn('[memory] ChromaDB provider registration skipped:', e.message)
-}
-
 // AbortController for the current LLM call (used to interrupt the main loop)
 let currentAbortController = null
 let currentExecution = null
 
-// Watchdog锛氬崟杞?runTurn 瓒呰繃杩欎釜鏃堕棿鏈繑鍥炶涓哄崱姝伙紙鏈€鍙兘鏄?fetch/LLM stream/涓夋柟缃戠粶璋冪敤
-// 娌′紶 AbortSignal 涔熸病鑷繁瓒呮椂锛夈€傝Е鍙戝悗寮?abort锛屾妸 processing 娓呮帀锛屼富寰幆鑳界户缁?
-// 澶勭悊鍚庣画娑堟伅銆備笉淇鎸傜潃鐨?promise锛堝畠浼氱暀鍦ㄥ唴瀛橀噷鐩村埌 GC 鎴栬嚜琛岀粨鏉燂級锛屼絾淇濊瘉 UI
-// "鎬濊€冧腑"姘歌繙鍦ㄦ湁闄愭椂闂村唴瑙ｉ攣銆佺敤鎴风殑涓嬩竴鍙ヨ瘽鑳借姝ｅ父澶勭悊銆?
+// Watchdog：单轮 runTurn 超过这个时间未返回视为卡死（最可能是 fetch/LLM stream/三方网络调用
+// 没传 AbortSignal 也没自己超时）。触发后强 abort，把 processing 清掉，主循环能继续
+// 处理后续消息。不修复挂着的 promise（它会留在内存里直到 GC 或自行结束），但保证 UI
+// "思考中"永远在有限时间内解锁、用户的下一句话能被正常处理。
 const RUN_TURN_WATCHDOG_MS = 600_000
 
 const PRIORITY = {
@@ -170,7 +126,7 @@ const STARTUP_SELF_CHECK_CONFIG_KEY = 'l2_startup_self_check'
 // Initialize database
 getDB()
 if (getMemoryCount() === 0) {
-  console.log('[system] Memory store is empty 鈥?injecting default seed memories')
+  console.log('[system] Memory store is empty — injecting default seed memories')
   await import('../scripts/seed-memories.js')
 }
 const birthTime = getOrInitBirthTime()
@@ -190,21 +146,21 @@ function decrementAwakeningTick() {
 
 // Awakening exploration tasks: after self-check completes, each autonomous heartbeat tick completes one in order
 const EXPLORATION_INDEX_KEY = 'awakening_exploration_index'
-// AwakeningCard call template 鈥?must be executed after completing each exploration step:
+// AwakeningCard call template — must be executed after completing each exploration step:
 // ui_show("AwakeningCard", { index: N, total: 3, title: "title", finding: "one-sentence finding", emoji: "emoji" })
 const AWAKENING_EXPLORATION_TASKS = [
   // 1. Read existing memories
   `Exploration (1/2): See what you already know.
 Go through the injected memories silently and take stock: who do you know, what do you know, are there any threads with no follow-up.
-[HARD RULE 鈥?DO NOT VIOLATE] During the awakening exploration phase the user has not started a conversation with you yet. Calling send_message to proactively open a topic 鈥?including any "casual mention" of memories you uncovered 鈥?is forbidden. Record findings only in the AwakeningCard below; do not turn them into outbound messages.
-When done, call ui_show("AwakeningCard", { index:1, total:2, title:"Reading memories", finding:"(one sentence: the most notable lead in the memory store, or 'memory store ready')", emoji:"馃" }).
-If later the user opens a conversation and the topic is relevant, you may bring the finding in then 鈥?not before.`,
+[HARD RULE — DO NOT VIOLATE] During the awakening exploration phase the user has not started a conversation with you yet. Calling send_message to proactively open a topic — including any "casual mention" of memories you uncovered — is forbidden. Record findings only in the AwakeningCard below; do not turn them into outbound messages.
+When done, call ui_show("AwakeningCard", { index:1, total:2, title:"Reading memories", finding:"(one sentence: the most notable lead in the memory store, or 'memory store ready')", emoji:"🧠" }).
+If later the user opens a conversation and the topic is relevant, you may bring the finding in then — not before.`,
 
   // 2. Surface an unfinished thread
   `Exploration (2/2): Find a forgotten thread.
-Look through memories silently 鈥?what did the user mention before but never bring up again? A plan, an idea, something they said they wanted to do but never did?
-[HARD RULE 鈥?DO NOT VIOLATE] Same as Task 1: send_message is forbidden during awakening exploration. Do not "casually bring it up". Do not ask "do you need me to move this forward?". Do not draft an opening line to the user. The thread, if found, lives only in the AwakeningCard finding field; it waits for the user to start the conversation.
-When done, call ui_show("AwakeningCard", { index:2, total:2, title:"Unfinished thread", finding:"(one sentence describing the forgotten thread, or 'no open threads found')", emoji:"馃攳" }).`,
+Look through memories silently — what did the user mention before but never bring up again? A plan, an idea, something they said they wanted to do but never did?
+[HARD RULE — DO NOT VIOLATE] Same as Task 1: send_message is forbidden during awakening exploration. Do not "casually bring it up". Do not ask "do you need me to move this forward?". Do not draft an opening line to the user. The thread, if found, lives only in the AwakeningCard finding field; it waits for the user to start the conversation.
+When done, call ui_show("AwakeningCard", { index:2, total:2, title:"Unfinished thread", finding:"(one sentence describing the forgotten thread, or 'no open threads found')", emoji:"🔍" }).`,
 ]
 
 function getExplorationIndex() {
@@ -219,10 +175,10 @@ function advanceExplorationTask() {
   }
 }
 function buildAwakeningExplorationDirections() {
-  if (getAwakeningTicks() <= 0) return null  // 瑙夐啋鏈熷凡缁撴潫锛屼笉鍐嶆敞鍏ユ帰绱换鍔?
+  if (getAwakeningTicks() <= 0) return null  // 觉醒期已结束，不再注入探索任务
   const index = getExplorationIndex()
   if (index < AWAKENING_EXPLORATION_TASKS.length) return AWAKENING_EXPLORATION_TASKS[index]
-  // All exploration tasks done 鈥?check whether to ask about agent delegation permissions
+  // All exploration tasks done — check whether to ask about agent delegation permissions
   const delegationAsk = buildDelegationAskDirections()
   return delegationAsk || null
 }
@@ -250,7 +206,7 @@ function registerMinimaxIfAvailable() {
 registerMinimaxIfAvailable()
 
 if (config.needsActivation) {
-  console.log('[LLM] Not activated 鈥?waiting for user to enter API key on the activation page')
+  console.log('[LLM] Not activated — waiting for user to enter API key on the activation page')
 } else {
   console.log(`[LLM] Using ${config.provider} (model: ${config.model})`)
 }
@@ -268,13 +224,13 @@ const state = {
   thoughtStack: [],  // thought stack, max 3 entries, format: { concept, line }
   startupSelfCheck: null,
   pendingVerbatimRecital: null,
-  pendingConfidenceHint: null,  // 涓婁竴杞?refresh-loop 鐨?confidence锛屼緵涓嬫 runInjector 璋冩暣鍙洖鏁伴噺鍚庢竻绌?
-  tickCounter: 0,             // 绱 TICK 璁℃暟锛堟瘡娆¤繘 isTick 璺緞鑷锛?
-  lastTaskRefreshTick: -10,   // 涓婃 TICK 璺緞瑙﹀彂 refresh-loop 鏃剁殑 tickCounter锛涘垵鍊?-10 淇濊瘉棣栦釜 TICK 绔嬪埢鍙Е鍙戯紙宸€?= 0 - (-10) = 10 >= 5锛?
-  threadState: initThreadState(),  // 绾跨储妯″瀷锛圖ynamicMemoryPool.md 绗?8 绔狅級锛歵hreads + 鍓嶅彴鎸囬拡 + 鎵胯锛岄噸鍚粠 db 鎭㈠
+  pendingConfidenceHint: null,  // 上一轮 refresh-loop 的 confidence，供下次 runInjector 调整召回数量后清空
+  tickCounter: 0,             // 累计 TICK 计数（每次进 isTick 路径自增）
+  lastTaskRefreshTick: -10,   // 上次 TICK 路径触发 refresh-loop 时的 tickCounter；初值 -10 保证首个 TICK 立刻可触发（差值 = 0 - (-10) = 10 >= 5）
+  threadState: initThreadState(),  // 线索模型（DynamicMemoryPool.md 第 8 章）：threads + 前台指针 + 承诺，重启从 db 恢复
 }
 
-// 鍚姩鏃舵仮澶嶇嚎绱㈢姸鎬侊紱threads 琛ㄤ负绌轰絾鏃?focus_stack 鏈夎揣 鈫?涓€娆℃€ц縼绉伙紙鏍堥《=鍓嶅彴锛夈€?
+// 启动时恢复线索状态；threads 表为空但旧 focus_stack 有货 → 一次性迁移（栈顶=前台）。
 function initThreadState() {
   const loaded = loadThreadState()
   if (loaded) return loaded
@@ -283,17 +239,17 @@ function initThreadState() {
     if (Array.isArray(legacy) && legacy.length > 0) {
       const migrated = migrateFocusStackToThreads(legacy)
       saveThreadState(migrated)
-      console.log(`[threads] 浠庝笓娉ㄦ爤杩佺Щ ${migrated.threads.length} 鏉＄嚎绱紙鍓嶅彴 = 鍘熸爤椤讹級`)
+      console.log(`[threads] 从专注栈迁移 ${migrated.threads.length} 条线索（前台 = 原栈顶）`)
       return migrated
     }
   } catch (e) {
-    console.warn('[threads] focus_stack 杩佺Щ澶辫触:', e?.message || e)
+    console.warn('[threads] focus_stack 迁移失败:', e?.message || e)
   }
   return { threads: [], foregroundId: null, commitments: [] }
 }
 
-// brain-ui 鍏煎锛氭妸绾跨储鐘舵€佹淳鐢熸垚"鏍堣鍥?锛堝悗鍙版寜娲昏穬鏃堕棿鍗囧簭 + 鍓嶅彴鍨簳=鏍堥《锛夛紝
-// focus_frame 浜嬩欢 payload 褰㈢姸涓嶅彉锛屼笓娉ㄥ抚瑙傚療闈㈡澘闆舵敼鍔ㄣ€?
+// brain-ui 兼容：把线索状态派生成"栈视图"（后台按活跃时间升序 + 前台垫底=栈顶），
+// focus_frame 事件 payload 形状不变，专注帧观察面板零改动。
 function deriveStackView(state) {
   const ts = ensureThreadState(state)
   const background = ts.threads
@@ -305,7 +261,7 @@ function deriveStackView(state) {
 
 const TASK_IDLE_TICK_LIMIT = 5  // auto-clear task after N consecutive task ticks with no tool calls
 
-// 璇嗗埆鍣ㄥ幓鎶栬皟搴︼細鎵归噺 recognizer 瀹屾垚鍚庣収甯稿箍鎾?memories_written锛堟寜鎵癸紝count 涓鸿鎵瑰啓鍏ユ€绘暟锛?
+// 识别器去抖调度：批量 recognizer 完成后照常广播 memories_written（按批，count 为该批写入总数）
 configureRecognizerScheduler({
   onResult: (memories) => {
     emitEvent('memories_written', { count: memories?.length || 0, memories: memories || [] })
@@ -334,19 +290,19 @@ function summarizeToolCall(t = {}) {
   return `${t.name || 'tool'}${status}`
 }
 
-// 绾跨储妯″瀷锛歵ask 鐢熷懡鍛ㄦ湡 鈫?鎵胯鐢熷懡鍛ㄦ湡銆?
-// set_task = "濂界殑鎴戝幓鍋?鐨勫伐绋嬪寲鏃跺埢锛堝崟 Agent 鐗?spawn锛夛細缁欏墠鍙扮嚎绱㈡寕鎵胯锛岄拤浣忔俯搴︼紱
-// 浠诲姟瀹屾垚/鍙栨秷 = 浜ゅ樊锛氬叧鎵胯锛岀嚎绱㈡寜 lastEventAt 鑷劧闄嶆俯鈥斺€旀病鏈変换浣曠獊鍙樺姩浣溿€?
+// 线索模型：task 生命周期 ↔ 承诺生命周期。
+// set_task = "好的我去做"的工程化时刻（单 Agent 版 spawn）：给前台线索挂承诺，钉住温度；
+// 任务完成/取消 = 交差：关承诺，线索按 lastEventAt 自然降温——没有任何突变动作。
 function openTaskCommitment(description) {
   try {
     const commitment = openCommitment(state, { text: String(description || ''), tick: state.tickCounter || 0 })
-    // task 鈫?鎵胯缁戝畾锛歵ask 妲芥槸鍗曚緥锛坰et_task B 浼氳鐩?A锛夛紝浣嗘壙璇烘槸澶氫緥鐨勨€斺€?
-    // 鏀跺熬鏃跺繀椤绘寜 id 绮剧‘鍏?褰撳墠 task 鐨勬壙璇?锛屽惁鍒?closeCommitment 榛樿鍏虫渶鑰佺殑
-    // open 鎵胯锛屼换鍔?B 瀹屾垚浼氳鍏充换鍔?A 鐨勬壙璇猴紙琚鐩栫殑 A 鎵胯淇濇寔 open锛?
-    // 鐢ㄦ埛娌″彇娑?A锛屾壙璇轰粛鏈厬鐜帮紝绾跨储淇濇寔 warm 绛夌敤鎴峰洖鏉ラ棶锛夈€?
+    // task ↔ 承诺绑定：task 槽是单例（set_task B 会覆盖 A），但承诺是多例的——
+    // 收尾时必须按 id 精确关"当前 task 的承诺"，否则 closeCommitment 默认关最老的
+    // open 承诺，任务 B 完成会误关任务 A 的承诺（被覆盖的 A 承诺保持 open：
+    // 用户没取消 A，承诺仍未兑现，线索保持 warm 等用户回来问）。
     state.taskCommitmentId = commitment?.id || null
-    // 璺ㄩ噸鍚寔涔呭寲锛歵ask 浠?config 鎭㈠銆佹壙璇轰粠 db 鎭㈠锛岀粦瀹氬叧绯讳篃寰楄窡鐫€娲讳笅鏉ワ紝
-    // 鍚﹀垯閲嶅惎鍚庢敹灏鹃€€鍖栧洖"鍏虫渶鑰佺殑 open 鎵胯"銆?
+    // 跨重启持久化：task 从 config 恢复、承诺从 db 恢复，绑定关系也得跟着活下来，
+    // 否则重启后收尾退化回"关最老的 open 承诺"。
     setConfig('current_task_commitment_id', commitment?.id || '')
     saveThreadState(state.threadState)
   } catch (e) {
@@ -434,23 +390,23 @@ function ensureStartupSelfCheckState() {
 function buildStartupSelfCheckDirections(checkState) {
   if (!checkState?.active) return ''
   return [
-    `This is the L2 startup self-check flow (${STARTUP_SELF_CHECK_VERSION}). It runs once; when finished you must call complete_startup_self_check to record the results 鈥?it will not run again.`,
-    `[HARD RULE 鈥?DO NOT VIOLATE] During self-check, calling send_message is strictly forbidden. No text output of any kind (including "checking鈥?, "self-check complete", or any other text). All status must be expressed through speak (voice) and ui_show (cards). The text channel must remain completely silent; any text output counts as self-check failure.`,
+    `This is the L2 startup self-check flow (${STARTUP_SELF_CHECK_VERSION}). It runs once; when finished you must call complete_startup_self_check to record the results — it will not run again.`,
+    `[HARD RULE — DO NOT VIOLATE] During self-check, calling send_message is strictly forbidden. No text output of any kind (including "checking…", "self-check complete", or any other text). All status must be expressed through speak (voice) and ui_show (cards). The text channel must remain completely silent; any text output counts as self-check failure.`,
     `Complete the following 3 checks in order. Before each one, you must simultaneously play a Chinese voice announcement and show a progress card. After the check completes, close the card before moving to the next:`,
-    `1. Call speak text="姝ｅ湪妫€鏌ユ枃浠惰鍐欒兘鍔?; call ui_show("SelfCheckStepCard", {step:1, total:3, name:"鏂囦欢璇诲啓", icon:"馃搧"}) and save the returned id as step_card_id. Then: use write_file to write self_check.txt in the sandbox root (content = current timestamp), then read_file it back to verify consistency. Record the result and call ui_hide(step_card_id).`,
-    `2. Call speak text="姝ｅ湪妫€鏌ョ儹鐐归潰鏉?; call ui_show("SelfCheckStepCard", {step:2, total:3, name:"鐑偣闈㈡澘", icon:"馃寪"}) and save the returned id as step_card_id. Then: hotspot_mode action=show; confirm it returns ok, then hotspot_mode action=hide. Record the result and call ui_hide(step_card_id).`,
-    `3. Call speak text="姝ｅ湪妫€鏌ヨ棰戞ā寮?; call ui_show("SelfCheckStepCard", {step:3, total:3, name:"瑙嗛妯″紡", icon:"馃幀"}) and save the returned id as step_card_id. Then: web_search for "bilibili Iron Man JARVIS" ONCE 鈥?this is only a self-check, so take the FIRST BV number that appears in the results and stop immediately; do NOT keep searching for more videos or compare options, one valid BV id is enough. media_mode mode=video action=show url=https://www.bilibili.com/video/<BV> autoplay=true; wait ~5 seconds; media_mode mode=video action=hide. Record the result and call ui_hide(step_card_id).`,
+    `1. Call speak text="正在检查文件读写能力"; call ui_show("SelfCheckStepCard", {step:1, total:3, name:"文件读写", icon:"📁"}) and save the returned id as step_card_id. Then: use write_file to write self_check.txt in the sandbox root (content = current timestamp), then read_file it back to verify consistency. Record the result and call ui_hide(step_card_id).`,
+    `2. Call speak text="正在检查热点面板"; call ui_show("SelfCheckStepCard", {step:2, total:3, name:"热点面板", icon:"🌐"}) and save the returned id as step_card_id. Then: hotspot_mode action=show; confirm it returns ok, then hotspot_mode action=hide. Record the result and call ui_hide(step_card_id).`,
+    `3. Call speak text="正在检查视频模式"; call ui_show("SelfCheckStepCard", {step:3, total:3, name:"视频模式", icon:"🎬"}) and save the returned id as step_card_id. Then: web_search for "bilibili Iron Man JARVIS" ONCE — this is only a self-check, so take the FIRST BV number that appears in the results and stop immediately; do NOT keep searching for more videos or compare options, one valid BV id is enough. media_mode mode=video action=show url=https://www.bilibili.com/video/<BV> autoplay=true; wait ~5 seconds; media_mode mode=video action=hide. Record the result and call ui_hide(step_card_id).`,
     `Result values: use ok, degraded, error, or skipped_* for each item. Continue to the next item even if one fails.`,
-    `[FINAL TWO STEPS 鈥?REQUIRED]\n(a) Call ui_show to display SelfCheckCard with props: { results: [{name:"鏂囦欢璇诲啓",status:"ok/error",...},{name:"鐑偣闈㈡澘",...},{name:"瑙嗛妯″紡",...}], overall:"ok/degraded/error" }. Infer overall from actual results: all ok 鈫?ok; any skipped 鈫?degraded; any error 鈫?error.\n(b) Call complete_startup_self_check with a summary (one sentence) and the results object.`,
+    `[FINAL TWO STEPS — REQUIRED]\n(a) Call ui_show to display SelfCheckCard with props: { results: [{name:"文件读写",status:"ok/error",...},{name:"热点面板",...},{name:"视频模式",...}], overall:"ok/degraded/error" }. Infer overall from actual results: all ok → ok; any skipped → degraded; any error → error.\n(b) Call complete_startup_self_check with a summary (one sentence) and the results object.`,
   ].join('\n')
 }
 
-// Fallback 鎶曢€掞細褰撴ā鍨嬫湭鎸夊崗璁皟 send_message 鏃剁敱涓诲惊鐜唬涓烘姇閫掋€?
-// 鐢?msg 鑷甫鐨?externalPartyId + channel 璺敱锛堢敤鎴蜂粠鍝効鍙戯紝灏卞洖鍒板摢鍎匡級锛屽苟鍐欏叆 conversations 琛ㄣ€?
+// Fallback 投递：当模型未按协议调 send_message 时由主循环代为投递。
+// 用 msg 自带的 externalPartyId + channel 路由（用户从哪儿发，就回到哪儿），并写入 conversations 表。
 //
-// 鍚屾鍐欎竴鏉?action_logs锛坱ool='send_message', source='fallback'锛夛紝淇濊瘉 jarvis 鍦?
-// action_log 閲岃兘瀹屾暣鐪嬪埌鑷繁鐨勬墍鏈夌湡瀹炶緭鍑衡€斺€攕elf-snapshot 鐨勮韩浠介敋鎵嶆湁鎹彲渚濓紝
-// 涓嶄細鎶?fallback 鎶曢€掕鍒ゆ垚"骞界伒鍥炲锛堢湅浼兼槸浣犺杩囦絾 action_log 娌¤褰曪級"銆?
+// 同步写一条 action_logs（tool='send_message', source='fallback'），保证 jarvis 在
+// action_log 里能完整看到自己的所有真实输出——self-snapshot 的身份锚才有据可依，
+// 不会把 fallback 投递误判成"幽灵回复（看似是你说过但 action_log 没记录）"。
 function deliverFallbackReply(msg, content, timestamp) {
   const channel = msg.channel || ''
   const externalPartyId = msg.externalPartyId || ''
@@ -473,11 +429,11 @@ function deliverFallbackReply(msg, content, timestamp) {
     timestamp,
     channel,
     external_party_id: externalPartyId,
-    // P0-2锛歠allback 鎶曢€掔殑 reply 鍚屾牱妫€娴嬫湯灏炬槸鍚︽槸 follow-up 鎮康
+    // P0-2：fallback 投递的 reply 同样检测末尾是否是 follow-up 悬念
     open_question: detectOpenFollowupQuestion(content) ? 1 : 0,
   })
-  // 鍚屾鐧昏 action_log锛岃 self-snapshot 鑳界敤 action_log 浣滀负韬唤閿氱殑鐪熷€兼簮銆?
-  // tool 浠嶄负 send_message锛屼絾 source 鏍?'fallback' 浠ヤ究鍖哄垎涓诲姩璋冪敤涓庡崗璁厹搴曘€?
+  // 同步登记 action_log，让 self-snapshot 能用 action_log 作为身份锚的真值源。
+  // tool 仍为 send_message，但 source 标 'fallback' 以便区分主动调用与协议兜底。
   try {
     insertActionLog({
       timestamp,
@@ -487,7 +443,7 @@ function deliverFallbackReply(msg, content, timestamp) {
       status: 'ok',
       risk: 'medium',
       args: { target_id: msg.fromId, content, channel },
-      resultPreview: `娑堟伅宸插彂閫佽嚦 ${msg.fromId}${channel ? `锛?{channel}锛塦 : ''} [fallback]`,
+      resultPreview: `消息已发送至 ${msg.fromId}${channel ? `（${channel}）` : ''} [fallback]`,
       durationMs: 0,
       source: 'fallback',
     })
@@ -498,12 +454,12 @@ function deliverFallbackReply(msg, content, timestamp) {
 
 function formatQuickWeatherReply(cardProps) {
   if (!cardProps) return ''
-  const city = cardProps.city || '褰撳湴'
-  const temp = Number.isFinite(cardProps.temp) ? `${Math.round(cardProps.temp)}搴 : ''
-  const feel = Number.isFinite(cardProps.feel) ? `浣撴劅${Math.round(cardProps.feel)}` : ''
+  const city = cardProps.city || '当地'
+  const temp = Number.isFinite(cardProps.temp) ? `${Math.round(cardProps.temp)}度` : ''
+  const feel = Number.isFinite(cardProps.feel) ? `体感${Math.round(cardProps.feel)}` : ''
   const condition = cardProps.condition || cardProps.desc || ''
   const parts = [temp, feel, condition].filter(Boolean)
-  return parts.length ? `${city}鐜板湪${parts.join('锛?)}銆俙 : ''
+  return parts.length ? `${city}现在${parts.join('，')}。` : ''
 }
 
 async function tryHandleDirectWeatherTurn(input, msg, { finishTurn } = {}) {
@@ -511,7 +467,7 @@ async function tryHandleDirectWeatherTurn(input, msg, { finishTurn } = {}) {
 
   emitEvent('action', {
     tool: 'weather_query',
-    summary: '鏌ヨ澶╂皵',
+    summary: '查询天气',
     detail: String(input || '').slice(0, 120),
   })
 
@@ -521,12 +477,12 @@ async function tryHandleDirectWeatherTurn(input, msg, { finishTurn } = {}) {
   const reply = formatQuickWeatherReply(cardProps)
   if (!reply) return false
 
-  // P0-1锛氬ぉ姘斿揩閫熻矾寰勭粫寮€浜?updateFocusFrame锛岄渶瑕佹墜鍔ㄧ粰鏈疆 user 娑堟伅鍜?
-  //   鍗冲皢鍐欏叆鐨?jarvis 鍥炲鎵撲笂"澶╂皵"鐒︾偣鏍囩锛涘惁鍒?conversationWindow 閲?
-  //   杩欎袱琛?focus_topic 姘歌繙鏄┖锛岀牬鍧忚瘽棰樿竟鐣屾爣娉ㄣ€?
-  setCurrentFocusTopic('澶╂皵')
-  setCurrentThreadId('')  // 澶╂皵鏄竴娆℃€у彾瀛愶紝涓嶅綊灞炰换浣曠嚎绱?
-  try { updateUserMessageFocusTopic(msg.fromId, msg.timestamp, '澶╂皵') } catch {}
+  // P0-1：天气快速路径绕开了 updateFocusFrame，需要手动给本轮 user 消息和
+  //   即将写入的 jarvis 回复打上"天气"焦点标签；否则 conversationWindow 里
+  //   这两行 focus_topic 永远是空，破坏话题边界标注。
+  setCurrentFocusTopic('天气')
+  setCurrentThreadId('')  // 天气是一次性叶子，不归属任何线索
+  try { updateUserMessageFocusTopic(msg.fromId, msg.timestamp, '天气') } catch {}
 
   const timestamp = nowTimestamp()
   if (isVoiceChannel(msg.channel)) autoSpeakForVoiceReply(reply)
@@ -542,7 +498,7 @@ async function tryHandleDirectWeatherTurn(input, msg, { finishTurn } = {}) {
       hint: { placement: 'notification', enter: 'flash-in', exit: 'flash-out' },
     })
     addActiveUICard(id, { component: 'WeatherCard' })
-    emitEvent('action', { tool: 'ui_show', summary: '鎺ㄩ€佸崱鐗?, detail: 'WeatherCard' })
+    emitEvent('action', { tool: 'ui_show', summary: '推送卡片', detail: 'WeatherCard' })
   }
 
   finishTurn?.(reply)
@@ -561,9 +517,9 @@ export function buildToolContext({ currentTargetId = null, conversationWindow = 
   }
 
   const unique = [...new Set(visibleTargetIds.filter(Boolean))]
-  // currentTargetId 蹇呴』鍥炰紶锛氬伐鍏锋墽琛屽眰锛坙lm.js 鐨勮€楁椂宸ュ叿鍗虫椂鍥炲簲 ack銆乻end_message 鍗忚鍏滃簳锛?
-  // 閮介潬 toolContext.currentTargetId 鎵?褰撳墠璇ュ洖澶嶈皝"銆傛棭鍏堝彧鐢ㄥ畠绠?visibleTargetIds 鍗存病鏀惧洖
-  // 杩斿洖瀵硅薄锛屽鑷?toolContext.currentTargetId 鎭掍负 undefined 鈥斺€?ack 涓嶅彂銆乫allback 鎶曢€掍篃鎷夸笉鍒扮洰鏍囥€?
+  // currentTargetId 必须回传：工具执行层（llm.js 的耗时工具即时回应 ack、send_message 协议兜底）
+  // 都靠 toolContext.currentTargetId 找"当前该回复谁"。早先只用它算 visibleTargetIds 却没放回
+  // 返回对象，导致 toolContext.currentTargetId 恒为 undefined —— ack 不发、fallback 投递也拿不到目标。
   return { currentTargetId: currentTargetId || null, allowedTargetIds: unique, visibleTargetIds: unique }
 }
 
@@ -576,15 +532,15 @@ function buildToolContextForProcess(msg, injection) {
 
   return {
     ...base,
-    // 褰撳墠 turn 鐨勬笭閬撲俊鎭細execSendMessage 鍦?AUTO 妯″紡涓嬩紭鍏堢敤杩欓噷锛岀‘淇?鍦ㄥ摢鍎挎敹鐨勬秷鎭氨鍥炲埌鍝効"
+    // 当前 turn 的渠道信息：execSendMessage 在 AUTO 模式下优先用这里，确保"在哪儿收的消息就回到哪儿"
     currentChannel: msg?.channel || null,
     currentExternalPartyId: msg?.externalPartyId || null,
     currentUserMessage: msg?.content || null,
-    // 鑷垜鎰熺煡淇″彿锛氫紶缁欏伐鍏锋墽琛屽眰锛堝 upsert_memory 瀹堥棬锛夛紝璁?闀滃儚姹℃煋"鍦ㄥ啓鍏ラ暱鏈熻蹇嗗墠灏辫鎷︽埅
+    // 自我感知信号：传给工具执行层（如 upsert_memory 守门），让"镜像污染"在写入长期记忆前就被拦截
     selfPerception: injection.selfPerception || null,
 
-    // 瀹¤鍒嗚韩锛坮eview_work锛夊彇璇佺敤锛氬綋鍓嶄换鍔＄洰鏍?+ 姣忔鐘舵€併€傝瀹¤鍒嗚韩鑳芥嬁鍒颁富 Agent 鑷繁鐨?
-    // 璁″垝鍋氬鐓э紝鐪?澹扮О瀹屾垚"涓庢瘡姝ヨ瘉鎹槸鍚︿竴鑷淬€傚彧璇诲揩鐓э紝涓嶅彲琚富 Agent 鏀瑰啓銆?
+    // 审视分身（review_work）取证用：当前任务目标 + 每步状态。让审视分身能拿到主 Agent 自己的
+    // 计划做对照，看"声称完成"与每步证据是否一致。只读快照，不可被主 Agent 改写。
     getTaskState: () => ({ task: state.task, steps: state.taskSteps }),
 
     onSetTask: (description, steps) => {
@@ -611,7 +567,7 @@ function buildToolContextForProcess(msg, injection) {
       if (clearedTask) {
         insertMemory({
           event_type: 'task_complete',
-          content: `Task completed: ${clearedTask.slice(0, 60)}${summary ? ' 鈥?' + summary.slice(0, 60) : ''}`,
+          content: `Task completed: ${clearedTask.slice(0, 60)}${summary ? ' — ' + summary.slice(0, 60) : ''}`,
           detail: 'Task marked complete via the complete_task tool',
           entities: [], concepts: [], tags: ['task_complete'],
           timestamp: nowTimestamp(),
@@ -629,8 +585,8 @@ function buildToolContextForProcess(msg, injection) {
       // Option C: auto-clear task when all steps reach a terminal state
       const terminal = ['done', 'failed', 'skipped']
       const allTerminal = total > 0 && state.taskSteps.every(s => terminal.includes(s.status))
-      // 鍦?autoCompleteTask 娓呯┖ taskSteps 涔嬪墠鍏堢畻濂?涓嬩竴姝?鏄惁鏈夊け璐?锛屽洖浼犵粰 executor锛?
-      // 璁?update_task_step 鐨勮繑鍥炰覆鎶婃ā鍨嬫帹杩涗笅涓€涓?鎵ц鈫掕瀵熲啋鍒ゆ柇 寰惊鐜紙ReAct 椹卞姩锛夈€?
+      // 在 autoCompleteTask 清空 taskSteps 之前先算好"下一步/是否有失败"，回传给 executor，
+      // 让 update_task_step 的返回串把模型推进下一个 执行→观察→判断 微循环（ReAct 驱动）。
       const nextIndex = state.taskSteps.findIndex(s => s.status === 'pending')
       const nextStep = nextIndex >= 0 ? state.taskSteps[nextIndex].text : null
       const anyFailed = state.taskSteps.some(s => s.status === 'failed')
@@ -706,15 +662,15 @@ function getProcessPriority(msg) {
 }
 
 function isVoiceChannel(channel) {
-  return channel === 'voice' || channel === '璇煶璇嗗埆' || channel === 'FocusBanner' || channel === 'web' || channel === 'API'
+  return channel === 'voice' || channel === '语音识别' || channel === 'FocusBanner' || channel === 'web' || channel === 'API'
 }
 
-// 璇煶杞噷"鏄庢樉瑕佸線澶栭儴/绀句氦娓犻亾鍙戦€?鐨勬剰鍥锯€斺€斿懡涓垯淇濈暀 send_message 宸ュ叿锛?
-// 鍚﹀垯璇煶杞粯璁ゆ挙鎺夊畠锛堝洖澶嶈蛋绾枃鏈洿鎶?TTS锛夈€傚畞鍙紡鍒わ紙灏戞暟鎯呭喌涓嬫ā鍨嬪涓嶅埌澶栧彂閫氶亾锛?
-// 浼氬瀹炶涓€澹帮級涔熶笉璇垽锛?鍙?瀛楀お瀹芥硾涓嶆敹锛屽繀椤诲甫鏄庣‘娓犻亾璇嶆垨"鍙戝埌/鍙戠粰鎴?杩欑被璺敱鎰忓浘锛夈€?
+// 语音轮里"明显要往外部/社交渠道发送"的意图——命中则保留 send_message 工具，
+// 否则语音轮默认撤掉它（回复走纯文本直投+TTS）。宁可漏判（少数情况下模型够不到外发通道，
+// 会如实说一声）也不误判（"发"字太宽泛不收，必须带明确渠道词或"发到/发给我"这类路由意图）。
 const EXTERNAL_SEND_HINTS = [
-  '寰俊', 'wechat', 'discord', '椋炰功', 'feishu', '浼佸井', 'wecom',
-  '鍙戝埌', '鎺ㄩ€佸埌', '鍙戠粰鎴?, '杞粰', '鍙戞潯寰俊', '鍙戜釜寰俊', '鍙戞垜寰俊',
+  '微信', 'wechat', 'discord', '飞书', 'feishu', '企微', 'wecom',
+  '发到', '推送到', '发给我', '转给', '发条微信', '发个微信', '发我微信',
 ]
 function voiceTurnNeedsSendMessage(text) {
   const b = String(text || '').toLowerCase()
@@ -747,7 +703,7 @@ function tryHandleVerbatimTurn(input, msg, { finishTurn, conversationWindow = []
       sourceTimestamp: msg.timestamp || nowTimestamp(),
       createdAt: Date.now(),
     }
-    deliverDirectReply(msg, '鏀跺埌锛屽噯澶囧ソ浜嗐€傝"寮€濮?鎴戝氨璇汇€?, finishTurn)
+    deliverDirectReply(msg, '收到，准备好了。说"开始"我就读。', finishTurn)
     return true
   }
 
@@ -814,7 +770,7 @@ function enqueueDueReminders() {
         const config = JSON.parse(reminder.recurrence_config || '{}')
         nextDueIso = calculateNextDueAt(reminder.recurrence_type, config, new Date()).toISOString()
       } catch (err) {
-        console.error(`[reminder #${reminder.id}] Failed to calculate next recurrence time: ${err.message} 鈥?falling back to one-shot`)
+        console.error(`[reminder #${reminder.id}] Failed to calculate next recurrence time: ${err.message} — falling back to one-shot`)
         const marked = markReminderFired(reminder.id, now)
         if (!marked.changes) continue
       }
@@ -858,14 +814,14 @@ function handleLLMFailure(err, label, msg) {
   }
 }
 
-// 鍒ゆ柇鏈疆娑堟伅鐩稿鍘嗗彶鏄惁鍙戠敓浜?channel 鍒囨崲锛堝 TUI 鈫?WECHAT锛夈€?
-// 鐢ㄤ簬缁?LLM 鏄惧紡鎻愮ず"鍏ュ彛鎹簡"锛岄伩鍏?閭ｇ幇鍦ㄥ憿"杩欑被杩介棶琚?runtime 鍧楋紙鐢甸噺绛夛級鎶㈣蛋浠ｈ瘝銆?
+// 判断本轮消息相对历史是否发生了 channel 切换（如 TUI → WECHAT）。
+// 用于给 LLM 显式提示"入口换了"，避免"那现在呢"这类追问被 runtime 块（电量等）抢走代词。
 function detectChannelSwitch(msg, conversationWindow) {
   if (!msg) return false
   const currentNorm = normalizeChannel(msg.channel || '')
   if (!currentNorm) return false
   const rows = Array.isArray(conversationWindow) ? conversationWindow : []
-  // 鍊掑簭鎵炬渶杩戜竴鏉′笉鏄?current 鏈韩銆佷笉鏄?SYSTEM 鐨勬秷鎭?
+  // 倒序找最近一条不是 current 本身、不是 SYSTEM 的消息
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i]
     if (!row) continue
@@ -883,23 +839,23 @@ function detectChannelSwitch(msg, conversationWindow) {
 
 function isSoftwareInstallRequest(text = '') {
   const t = String(text || '').toLowerCase()
-  return /瀹夎杞欢|瀹夎搴旂敤|瀹夎绋嬪簭|瀹夎瀹㈡埛绔瘄瑁呰蒋浠秥瑁呭簲鐢▅瑁呯▼搴弢瑁呭鎴风|涓嬭浇瀹夎鍖厊涓嬭浇杞欢|杞欢涓嬭浇|杞欢瀹夎鍖厊瀹夎鍖厊瀹樻柟瀹夎鍖厊瀹夎寰俊|瑁呭井淇涓嬭浇寰俊|寰俊瀹夎鍖厊瀹夎鍓槧|瑁呭壀鏄爘涓嬭浇鍓槧|鍓槧瀹夎鍖厊capcut|install app|install software|install program|install client|download installer|download setup|software installer|setup\.exe|\.msi|\.exe/.test(t)
+  return /安装软件|安装应用|安装程序|安装客户端|装软件|装应用|装程序|装客户端|下载安装包|下载软件|软件下载|软件安装包|安装包|官方安装包|安装微信|装微信|下载微信|微信安装包|安装剪映|装剪映|下载剪映|剪映安装包|capcut|install app|install software|install program|install client|download installer|download setup|software installer|setup\.exe|\.msi|\.exe/.test(t)
 }
 
 // Build systemEnv on demand: inject each block based on keywords in the message
 function buildSystemEnv(msg) {
   const text = (typeof msg === 'string' ? msg : msg?.content || '').toLowerCase()
   const blocks = []
-  // 鑻辨枃缂╁啓鐢?\b 閬垮厤璇尮閰嶅瓙涓诧紙os鈫抍lose, ip鈫抯cript, ram鈫抪rogram锛?
-  if (/绯荤粺淇℃伅|鎿嶄綔绯荤粺|鐢佃剳|涓绘満鍚峾鍐呭瓨|杩愯鍐呭瓨|hostname|鏃跺尯|鐢ㄦ埛鍚峾\bos\b|\bcpu\b|\bram\b|\bip\b|\bip鍦板潃\b|locale/.test(text))
+  // 英文缩写用 \b 避免误匹配子串（os→close, ip→script, ram→program）
+  if (/系统信息|操作系统|电脑|主机名|内存|运行内存|hostname|时区|用户名|\bos\b|\bcpu\b|\bram\b|\bip\b|\bip地址\b|locale/.test(text))
     blocks.push(getSystemInfoBlock())
-  if (/妗岄潰|蹇嵎鏂瑰紡|妗岄潰鏂囦欢|妗岄潰搴旂敤|宸插畨瑁厊娴忚鍣▅鍚姩绋嬪簭/.test(text))
+  if (/桌面|快捷方式|桌面文件|桌面应用|已安装|浏览器|启动程序/.test(text))
     blocks.push(getDesktopBlock())
-  if (isSoftwareInstallRequest(text) || /杞欢|搴旂敤|绋嬪簭|瀹㈡埛绔瘄宸ュ叿|瑁呬簡浠€涔坾鐢ㄤ簡浠€涔坾浠ｇ悊|绉戝涓婄綉|缈诲|\bvpn\b|\bproxy\b|clash|mihomo|v2ray|xray|sing-?box|shadowrocket|shadowsocks|wireguard|tailscale|zerotier|openvpn/.test(text))
+  if (isSoftwareInstallRequest(text) || /软件|应用|程序|客户端|工具|装了什么|用了什么|代理|科学上网|翻墙|\bvpn\b|\bproxy\b|clash|mihomo|v2ray|xray|sing-?box|shadowrocket|shadowsocks|wireguard|tailscale|zerotier|openvpn/.test(text))
     blocks.push(getInstalledSoftwareBlock())
-  if (/澶╂皵|姘旀俯|娓╁害|涓嬮洦|涓嬮洩|鏅村ぉ|姘斿€檤椋庡姏|椋庨€焲鍙伴|浣嶇疆|鍩庡競|鍦ㄥ摢涓煄甯?.test(text))
+  if (/天气|气温|温度|下雨|下雪|晴天|气候|风力|风速|台风|位置|城市|在哪个城市/.test(text))
     blocks.push(getGeoWeatherBlock())
-  if (/鐑偣|鏂伴椈|鐑悳|鐑|浠婂ぉ鍙戠敓|鏈€杩戝彂鐢焲寰崥|鐭ヤ箮|澶存潯/.test(text))
+  if (/热点|新闻|热搜|热榜|今天发生|最近发生|微博|知乎|头条/.test(text))
     blocks.push(getTrendingBlock())
   return blocks.filter(Boolean).join('\n\n')
 }
@@ -923,10 +879,10 @@ async function runTurn(input, label, msg = null) {
     emitEvent('response', { sessionRef, label, content })
   }
 
-  console.log(`\n鈹€鈹€ ${label} 鈹€鈹€`)
+  console.log(`\n── ${label} ──`)
   if (!silentSignal) emitEvent(isTick ? 'tick' : 'message_received', { label, input: input.slice(0, 300) })
 
-  // User messages are written to conversations at the pushMessage stage (recorded on arrival) 鈥?do not write them again here.
+  // User messages are written to conversations at the pushMessage stage (recorded on arrival) — do not write them again here.
   try {
     beginExecution({
       priority,
@@ -972,14 +928,14 @@ async function runTurn(input, label, msg = null) {
     if (!isTick && msg && isLearnCommand(input)) {
       const desc = extractLearnDescription(input)
       if (!desc) {
-        finishTurn('璇锋弿杩颁綘鎯虫暀鎴戠殑宸ヤ綔娴侊紝渚嬪锛?learn 姣忓ぉ鏃╀笂8鐐规鏌ュぉ姘斿苟鎺ㄩ€?)
+        finishTurn('请描述你想教我的工作流，例如：/learn 每天早上8点检查天气并推送')
         return
       }
       const result = await learnSkill(desc, { callLLM, sandboxSkillsDir: null })
       if (result.ok) {
-        finishTurn(`宸插浼氥€?{result.skillName}銆嶆妧鑳姐€俓n\n棰勮锛歕n${result.preview}`)
+        finishTurn(`已学会「${result.skillName}」技能。\n\n预览：\n${result.preview}`)
       } else {
-        finishTurn(`瀛︿範澶辫触锛?{result.error}`)
+        finishTurn(`学习失败：${result.error}`)
       }
       return
     }
@@ -989,9 +945,9 @@ async function runTurn(input, label, msg = null) {
     const injection = await runInjector({ message: input, state })
     throwIfAborted(controller.signal)
 
-    // 1b. 绾跨储妯″瀷锛圖ynamicMemoryPool.md 绗?8 绔狅級鈥斺€?涓撴敞鏍堢殑缁т换鑰呫€?
-    // 鍙湁鐢ㄦ埛娑堟伅璧板綊灞炲垽瀹氾紙绾惎鍙戝紡锛岄浂 LLM 寤惰繜锛夛紱TICK 姘镐笉鍙備笌鍒ゅ畾涔熸案涓嶈Е鍙戦檷娓?
-    // 鈥斺€旀俯搴︽槸璇绘椂绠楀嚭鏉ョ殑锛坆uildThreadView锛夛紝娌℃湁"stale 娓呯悊"杩欎釜鍔ㄤ綔銆?
+    // 1b. 线索模型（DynamicMemoryPool.md 第 8 章）—— 专注栈的继任者。
+    // 只有用户消息走归属判定（纯启发式，零 LLM 延迟）；TICK 永不参与判定也永不触发降温
+    // ——温度是读时算出来的（buildThreadView），没有"stale 清理"这个动作。
     try {
       const saveState = () => saveThreadState(state.threadState)
       let threadResult = { event: 'noop', thread: null, switchedFrom: null }
@@ -1009,8 +965,8 @@ async function runTurn(input, label, msg = null) {
         event: threadResult?.event || 'noop',
       })
 
-      // 鍐欐椂褰掑睘鍗扮珷锛氭湰杞墍鏈?insertConversation 鑷姩甯?thread_id + focus_topic銆?
-      // TICK 杞紙鑷富骞叉椿锛夊綊灞炲埌寮€鏀炬壙璇虹殑绾跨储鈥斺€擜gent 骞叉椿鏈韩灏辨槸娉ㄦ剰鍔涗簨浠躲€?
+      // 写时归属印章：本轮所有 insertConversation 自动带 thread_id + focus_topic。
+      // TICK 轮（自主干活）归属到开放承诺的线索——Agent 干活本身就是注意力事件。
       const stampThread = !isTick
         ? foregroundThread
         : (() => {
@@ -1028,7 +984,7 @@ async function runTurn(input, label, msg = null) {
         saveState()
       }
 
-      // 鍓嶅彴鍒囪蛋 鈫?鏃у墠鍙板仛涓€娆″閲忔憳瑕侊紙fire-and-forget锛涘彧澧炲姞琛ㄧず锛屼笉闅愯棌浠讳綍瀵硅瘽锛夈€?
+      // 前台切走 → 旧前台做一次增量摘要（fire-and-forget；只增加表示，不隐藏任何对话）。
       if (threadResult?.switchedFrom) {
         const switched = threadResult.switchedFrom
         ;(async () => {
@@ -1038,8 +994,8 @@ async function runTurn(input, label, msg = null) {
         })().catch(() => {})
       }
 
-      // 寮变俊鍙峰€欓€夛紙涓庢煇鍚庡彴绾跨储閲嶅彔=1锛夆啋 鍚庡彴 LLM 浠茶銆?
-      // same 鈫?鍚堝苟锛堢嚎绱㈡棤鏍堝簭涓嶅彉閲忥紝鍚堝苟姘歌繙瀹夊叏锛夛紱different 鈫?鐢ㄨ涔夊寲 label/topic 娑﹁壊鏂扮嚎绱€?
+      // 弱信号候选（与某后台线索重叠=1）→ 后台 LLM 仲裁。
+      // same → 合并（线索无栈序不变量，合并永远安全）；different → 用语义化 label/topic 润色新线索。
       if (threadResult?.ambiguousWith && state.focusClassifierDisabled !== true) {
         const createdThread = threadResult.thread
         const candidate = threadResult.ambiguousWith
@@ -1060,7 +1016,7 @@ async function runTurn(input, label, msg = null) {
               ts.mergedAwayIds = [...(ts.mergedAwayIds || []), createdThread.id]
               setCurrentThreadId(candidate.id)
               saveState()
-              ts.mergedAwayIds = []   // db 琛屽凡鏍?merged锛屾竻鎺夐伩鍏嶆瘡娆?save 閲嶅 UPDATE
+              ts.mergedAwayIds = []   // db 行已标 merged，清掉避免每次 save 重复 UPDATE
             } else if (ts.threads.includes(createdThread)) {
               if (verdict.label) createdThread.label = verdict.label
               if (verdict.topic.length > 0) createdThread.topic = verdict.topic
@@ -1076,7 +1032,7 @@ async function runTurn(input, label, msg = null) {
         })().catch(() => {})
       }
     } catch (e) {
-      // 绾跨储鍒ゆ柇涓嶅簲璇ュ奖鍝嶄富娴佺▼锛涗换浣曞紓甯稿悶鎺夈€佽褰曟棩蹇楀嵆鍙?
+      // 线索判断不应该影响主流程；任何异常吞掉、记录日志即可
       console.log('[threads] attributeUserMessage failed:', e.message)
     }
 
@@ -1084,17 +1040,17 @@ async function runTurn(input, label, msg = null) {
     if (isTick) {
       const startupSelfCheckDirections = buildStartupSelfCheckDirections(state.startupSelfCheck)
       if (startupSelfCheckDirections) {
-        // When self-check is active, inject only the self-check instruction 鈥?not the generic tick directions.
+        // When self-check is active, inject only the self-check instruction — not the generic tick directions.
         // This prevents the "can stay silent" option from conflicting with "must run self-check".
         directions.unshift(startupSelfCheckDirections)
       } else {
         const explorationDirections = buildAwakeningExplorationDirections()
         if (explorationDirections) {
-          // Awakening exploration phase: each autonomous tick focuses on one exploration task 鈥?skip generic directions.
+          // Awakening exploration phase: each autonomous tick focuses on one exploration task — skip generic directions.
           directions.unshift(explorationDirections)
         } else {
           directions.unshift(
-            `This is an autonomous L2 heartbeat tick with no new user message. You have full tool access and may act proactively 鈥?no need to wait for the user.\n` +
+            `This is an autonomous L2 heartbeat tick with no new user message. You have full tool access and may act proactively — no need to wait for the user.\n` +
             `Things you can proactively do (examples, not exhaustive):\n` +
             `- Check in with the user based on the time of day (morning/evening/late night)\n` +
             `- Browse the sandbox folder and check for in-progress projects or file changes; report if relevant\n` +
@@ -1103,10 +1059,10 @@ async function runTurn(input, label, msg = null) {
             `- Search the web for something the user cares about and push valuable findings\n` +
             `- Check task progress or prefetched data (weather/news) and proactively report changes\n` +
             `Guidelines:\n` +
-            `- **Cooldown 鈥?strongest rule.** Look at the recent conversation timeline. If your own last send_message is less than 30 minutes old AND the user has not replied since, the default action is silence. Do NOT call send_message. Do not restart a topic the user just walked away from, do not "follow up" on a question you already asked, do not pivot to a stale earlier topic just because the new one didn't get a response. The only carve-outs: a real new fact arrived (reminder fires, a tool you were running just finished with a result the user asked for, a scheduled action's time came up). Boredom, curiosity, and "maybe they'd want to know" are not carve-outs.\n` +
-            `- Proactive but not intrusive: don't repeat what was just said; don't bother late at night without reason (23:00鈥?6:00: only message when there is clear value)\n` +
-            `- Have substance: before sending, make sure there is something genuinely worth saying 鈥?not just "checking in"\n` +
-            `- One thing per tick: pick the most valuable action, do it, and stop 鈥?don't pile multiple actions into one tick\n` +
+            `- **Cooldown — strongest rule.** Look at the recent conversation timeline. If your own last send_message is less than 30 minutes old AND the user has not replied since, the default action is silence. Do NOT call send_message. Do not restart a topic the user just walked away from, do not "follow up" on a question you already asked, do not pivot to a stale earlier topic just because the new one didn't get a response. The only carve-outs: a real new fact arrived (reminder fires, a tool you were running just finished with a result the user asked for, a scheduled action's time came up). Boredom, curiosity, and "maybe they'd want to know" are not carve-outs.\n` +
+            `- Proactive but not intrusive: don't repeat what was just said; don't bother late at night without reason (23:00–06:00: only message when there is clear value)\n` +
+            `- Have substance: before sending, make sure there is something genuinely worth saying — not just "checking in"\n` +
+            `- One thing per tick: pick the most valuable action, do it, and stop — don't pile multiple actions into one tick\n` +
             `- If there is truly nothing worth doing, stay silent and call no tools`
           )
         }
@@ -1121,10 +1077,10 @@ async function runTurn(input, label, msg = null) {
     if (isVoiceChannel(msg?.channel)) {
       directions.push('Voice mode: answer with judgment and meaning first. Do not read out an inventory. If details are merely evidence, compress them into the situation they prove.')
       directions.push('Voice mode style: speak like a person in the room. Default to one or two short sentences. No Markdown, no bullets, no headings, no process acknowledgement, no repeated summary. Say the situation, then stop.')
-      directions.push('The current user message came from voice input. Speak naturally and concisely 鈥?like talking to a person, not writing an article. Get to the point, avoid filler phrases, and do not use Markdown formatting (no bullet points, asterisks, or headers). Say what needs to be said and stop.')
+      directions.push('The current user message came from voice input. Speak naturally and concisely — like talking to a person, not writing an article. Get to the point, avoid filler phrases, and do not use Markdown formatting (no bullet points, asterisks, or headers). Say what needs to be said and stop.')
       directions.push('For voice input, do not send process acknowledgements like "I will look" or "let me check" before the answer. Send one compact answer unless you truly need a slow tool and have no result yet.')
       directions.push('If the user asks you to read, repeat, or output exact text for recording, reply with the exact text as normal chat text. Do not call the speak tool; this voice channel already turns assistant text into audio automatically. Do not paraphrase, summarize, shorten, or add commentary.')
-      directions.push('If the voice input is clearly a speech recognition error (meaningless noise, garbled syllables, random characters) OR appears to be ambient speech not directed at you 鈥?such as someone nearby talking to another person, background conversation, or utterances with no plausible intent to address an AI assistant 鈥?treat it as noise and stay genuinely silent. Do NOT call send_message or any other tool. Critically, do NOT write any spoken sentence about it either: on a voice/local turn your plain text reply is read aloud by TTS, so explaining "this looks like recognition noise, so I will stay silent" is self-defeating 鈥?that explanation itself becomes spoken sound, which is the opposite of silence. Instead reply with a SINGLE emoji and nothing else 鈥?prefer 馃憘 鈥?with no words, punctuation, or reasoning before or after it. A lone emoji gives TTS nothing meaningful to speak, so it stays effectively silent while still showing on screen that you registered the input and deliberately chose not to act on it. Only answer normally when the input is reasonably addressed to you.')
+      directions.push('If the voice input is clearly a speech recognition error (meaningless noise, garbled syllables, random characters) OR appears to be ambient speech not directed at you — such as someone nearby talking to another person, background conversation, or utterances with no plausible intent to address an AI assistant — treat it as noise and stay genuinely silent. Do NOT call send_message or any other tool. Critically, do NOT write any spoken sentence about it either: on a voice/local turn your plain text reply is read aloud by TTS, so explaining "this looks like recognition noise, so I will stay silent" is self-defeating — that explanation itself becomes spoken sound, which is the opposite of silence. Instead reply with a SINGLE emoji and nothing else — prefer 👂 — with no words, punctuation, or reasoning before or after it. A lone emoji gives TTS nothing meaningful to speak, so it stays effectively silent while still showing on screen that you registered the input and deliberately chose not to act on it. Only answer normally when the input is reasonably addressed to you.')
     }
 
     if (keyConfigFailDir) directions.unshift(keyConfigFailDir)
@@ -1156,7 +1112,7 @@ async function runTurn(input, label, msg = null) {
       }, 1000)
     }
 
-    // 鐢ㄦ埛璺ㄦ笭閬撳彲杈炬€у揩鐓э紙璁?L2 涓诲姩娑堟伅鑳介€夊娓犻亾锛氱敤鎴峰湪澶栭潰灏卞彂寰俊锛屽湪鐢佃剳鍓嶅氨鍙戞湰鍦帮級
+    // 用户跨渠道可达性快照（让 L2 主动消息能选对渠道：用户在外面就发微信，在电脑前就发本地）
     const presenceText = formatPresenceForPrompt(PRIMARY_USER_ID)
 
     if (runtimeInjection.taskExtraContextItems.length > 0) {
@@ -1221,7 +1177,7 @@ async function runTurn(input, label, msg = null) {
 
     // 2. Build system prompt (stable hard-floor) + context block (per-round dynamic)
     const persona = getConfig('persona') || ''
-    const agentName = getConfig('agent_name') || '灏忕櫧榫?
+    const agentName = getConfig('agent_name') || '小白龙'
     const entities = getKnownEntities()
     const hasActiveTask = !!state.task
     const extraContextJoined = [presenceText, runtimeInjection.contextText, prefetchText, injection.uiSignalSummary, formatActiveUICards(injection.activeUICards), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
@@ -1242,15 +1198,15 @@ async function runTurn(input, label, msg = null) {
       })
     }
 
-    // system 鍙暀绋冲畾纭簳绾匡紙agent_name / persona锛夆€斺€?璁?DeepSeek prefix cache
-    // 鐪熸鍛戒腑銆俢urrentTime / existenceDesc / systemEnv / security 鏀硅蛋 <runtime> 娈碉紙姣忚疆鍙樺寲锛夈€?
-    // P1锛氭妸褰撳墠 user 娑堟伅姝ｆ枃浼犵粰 buildSystemPrompt锛岃 agent registry 鍧楁寜闇€娉ㄥ叆
-    //   锛堝彧鍦ㄧ敤鎴锋槑纭彁鍒?Claude Code/Codex/Hermes 绛夊閮?agent 鏃舵墠鍑虹幇锛夈€?
-    // Wave 2锛氭妸 channel / geo / focus 淇″彿涓€璧蜂紶杩囧幓锛岃 8 娈靛満鏅鍒欐寜闇€娉ㄥ叆銆?
-    // TODO: Wave 2 鍚庣画鎺ュ叆 鈥斺€?hasWechatHistory 鏆傛椂鎸?false 浼狅紙闇€瑕佹煡 conversations 琛?
-    //   鐪嬪綋鍓?user 鏄惁鏈?WECHAT 鍘嗗彶锛涚洰鍓嶄緷璧?currentChannel === 'WECHAT' 鏉ヨЕ鍙戯級銆?
-    // TODO: Wave 2 鍚庣画鎺ュ叆 鈥斺€?hasActiveFocus 鏆傛椂鎸?false 浼狅紙闇€瑕佹妸 focus banner active
-    //   鐘舵€佸仛杩?state锛岀洰鍓嶄緷璧?keyword 瑙﹀彂锛夈€?
+    // system 只留稳定硬底线（agent_name / persona）—— 让 DeepSeek prefix cache
+    // 真正命中。currentTime / existenceDesc / systemEnv / security 改走 <runtime> 段（每轮变化）。
+    // P1：把当前 user 消息正文传给 buildSystemPrompt，让 agent registry 块按需注入
+    //   （只在用户明确提到 Claude Code/Codex/Hermes 等外部 agent 时才出现）。
+    // Wave 2：把 channel / geo / focus 信号一起传过去，让 8 段场景规则按需注入。
+    // TODO: Wave 2 后续接入 —— hasWechatHistory 暂时按 false 传（需要查 conversations 表
+    //   看当前 user 是否有 WECHAT 历史；目前依赖 currentChannel === 'WECHAT' 来触发）。
+    // TODO: Wave 2 后续接入 —— hasActiveFocus 暂时按 false 传（需要把 focus banner active
+    //   状态做进 state，目前依赖 keyword 触发）。
     const systemPrompt = buildSystemPrompt({
       agentName,
       persona,
@@ -1262,7 +1218,7 @@ async function runTurn(input, label, msg = null) {
       currentCountryCode: geoResult?.location?.country_code || '',
       currentTimezone: geoResult?.location?.timezone || '',
       currentTools: injection.tools || [],
-      // 缂栫▼绾緥鍐呭寲鐨勪俊鍙锋簮浜?涓夛細task 鏂囨湰 + 鏈€杩戝姩浣滄憳瑕侊紙TICK 骞叉椿杞篃鑳藉懡涓級
+      // 编程纪律内化的信号源二/三：task 文本 + 最近动作摘要（TICK 干活轮也能命中）
       currentTaskText: state.task || '',
       recentActionsSummary: (state.recentActions || []).map(a => a?.summary || '').join(' | '),
     })
@@ -1284,7 +1240,7 @@ async function runTurn(input, label, msg = null) {
       awakeningTicks: getAwakeningTicks(),
       threadView: buildThreadView(state),
       agentSkills: agentSkillsText,
-      // Runtime info锛氫粠 system 杩佹潵鐨勬瘡杞彉鍖栧瓧娈碉紝闆嗕腑鏀?<context><runtime>
+      // Runtime info：从 system 迁来的每轮变化字段，集中放 <context><runtime>
       currentTime: nowTimestamp(),
       existenceDesc: describeExistence(birthTime),
       systemEnv: buildSystemEnv(msg),
@@ -1296,10 +1252,10 @@ async function runTurn(input, label, msg = null) {
       selfSnapshot: injection.selfSnapshot || null,
     }
 
-    // 鈶?缁熶竴鐩稿叧搴﹂棬锛堝姩鎬佷笂涓嬫枃璁板繂姹?/ 灏戝嵆鏄己锛氭帓闄ゅ鍚戠殑绮剧粏鍖栫鐞嗭級銆?
-    // 鍦?buildContextBlock 娓叉煋涔嬪墠锛屽"鍑犱箮甯搁┗浣嗗父鏃犲叧"鐨?section 鍋氱浉鍏冲害闂ㄦ帶 + 鍏ㄦ鍩嬬偣銆?
-    // 鍙傜収绯?= 鏈疆 user 娑堟伅姝ｆ枃 + 褰撳墠鐒︾偣 topic锛堢紪鎺掑櫒宸茶捀棣忕殑"鍦ㄥ叧娉ㄤ粈涔?锛夈€?
-    // 鍙傜収绯讳俊鍙蜂笉瓒虫椂 selectContextSections 鍐呴儴浼氳嚜鍔ㄨ烦杩囬棬鎺с€佷繚鐣欏叏閮紙瀹堣繛缁劅绾㈢嚎锛夈€?
+    // ① 统一相关度门（动态上下文记忆池 / 少即是强：排除导向的精细化管理）。
+    // 在 buildContextBlock 渲染之前，对"几乎常驻但常无关"的 section 做相关度门控 + 全段埋点。
+    // 参照系 = 本轮 user 消息正文 + 当前焦点 topic（编排器已蒸馏的"在关注什么"）。
+    // 参照系信号不足时 selectContextSections 内部会自动跳过门控、保留全部（守连续感红线）。
     const focusTopicWords = (getForegroundThread(state)?.topic || []).join(' ')
     const referenceFrame = [msg?.content || input || '', focusTopicWords].filter(Boolean).join(' ')
     const gateResult = selectContextSections(baseContextArgs, {
@@ -1307,13 +1263,13 @@ async function runTurn(input, label, msg = null) {
       enabled: !state.sectionGateDisabled,
     })
     emitEvent('context_section_gate', { audit: gateResult.audit, meta: gateResult.meta })
-    // 鍩嬬偣鍗虫椂鍙锛氶棬鎺х湡姝ｈ窇杩囩殑杞锛屾墦涓€琛屽叏娈电浉鍏冲害鎽樿锛坢easure-only 鐨勫垎鏁颁篃鐪嬪緱鍒帮紝
-    // 鏀掑垎甯冩暟鎹敤锛夈€? 鏍囪鏈彲琚墧闄や絾褰撳墠 measure-only 鏀捐鐨勬鈥斺€斿畠浠槸鍚庣画 flip enforce 鐨勫€欓€夈€?
+    // 埋点即时可见：门控真正跑过的轮次，打一行全段相关度摘要（measure-only 的分数也看得到，
+    // 攒分布数据用）。* 标记本可被剔除但当前 measure-only 放行的段——它们是后续 flip enforce 的候选。
     if (gateResult.meta.gated && gateResult.audit.length > 0) {
       const summary = gateResult.audit
-        .map(a => `${a.section}=${a.score}${a.dropped ? '鉁? : (a.enforce ? '' : (a.hits === 0 ? '*' : ''))}`)
+        .map(a => `${a.section}=${a.score}${a.dropped ? '✂' : (a.enforce ? '' : (a.hits === 0 ? '*' : ''))}`)
         .join(' ')
-      console.log(`[鎺掗櫎灞俔 ${summary} | 鍙傜収绯?"${gateResult.meta.referenceFrame}"`)
+      console.log(`[排除层] ${summary} | 参照系="${gateResult.meta.referenceFrame}"`)
     }
 
     let contextBlock = buildContextBlock(gateResult.args)
@@ -1326,10 +1282,10 @@ async function runTurn(input, label, msg = null) {
       contextBlock = [contextBlock, strictEvaluationContext].filter(Boolean).join('\n\n')
     }
 
-    // P0-1锛氭妸鏈疆鐒︾偣 topic 瀛楃涓蹭紶缁?buildLLMMessages锛岀敤浜庯細
-    //   - conversationWindow 姣忔潯娑堟伅 marker 涓婄殑 topic 鏍囩
-    //   - 褰撳墠 user 娑堟伅 marker 涓婄殑 "topic switch" 鎻愮ず
-    //   - 杩囨湡鏈瓟鎮康鐨勫垽鏂紙璇濋鍒囪蛋鏃剁洿鎺ユ爣 [expired]锛?
+    // P0-1：把本轮焦点 topic 字符串传给 buildLLMMessages，用于：
+    //   - conversationWindow 每条消息 marker 上的 topic 标签
+    //   - 当前 user 消息 marker 上的 "topic switch" 提示
+    //   - 过期未答悬念的判断（话题切走时直接标 [expired]）
     const currentTopicStr = stableFocusTopic(getForegroundThread(state))
 
     const buildMessagesWithContext = (ctxBlock) => buildLLMMessages({
@@ -1350,7 +1306,7 @@ async function runTurn(input, label, msg = null) {
     let llmMessages = buildMessagesWithContext(contextBlock)
 
     // Memory refresh injection (L1 user messages only)
-    // 瀹炴椂鐢ㄦ埛娑堟伅锛坒astUserPath锛夎烦杩囷細鍒锋柊娴佺▼浼氬厛璺戜竴娆¤瘎浼?LLM 璋冪敤锛屽瀹炴椂鑱婂ぉ鏄‖鎬у欢杩熺◣
+    // 实时用户消息（fastUserPath）跳过：刷新流程会先跑一次评估 LLM 调用，对实时聊天是硬性延迟税
     const shouldRefreshL1 = !isTick && !fastUserPath && msg?.content && msg.content.trim()
     const tickSinceLastRefresh = state.tickCounter - state.lastTaskRefreshTick
     const shouldRefreshTick = isTick && !!state.task && tickSinceLastRefresh >= 5
@@ -1376,15 +1332,15 @@ async function runTurn(input, label, msg = null) {
             extraParts.push(`[Round 3 external query results]\n${refreshResult.round3Results}`)
           }
           const enrichedMemoriesText = memoriesText + '\n\n' + extraParts.join('\n\n')
-          // Rebuild only the context block 鈥?system stays stable so prompt cache survives.
-          // 鐢?gateResult.args锛堣繃闂ㄥ悗鐨勶級鑰岄潪鍘熷 baseContextArgs锛岃鎺掗櫎灞傜殑鍓旈櫎鍦?refresh 閲嶅缓閲屼篃淇濈暀銆?
+          // Rebuild only the context block — system stays stable so prompt cache survives.
+          // 用 gateResult.args（过门后的）而非原始 baseContextArgs，让排除层的剔除在 refresh 重建里也保留。
           contextBlock = buildContextBlock({
             ...gateResult.args,
             memories: enrichedMemoriesText,
             roundInfo: { round: refreshResult.roundsRun },
           })
           llmMessages = buildMessagesWithContext(contextBlock)
-          console.log(`[memory refresh] Done 鈥?${refreshResult.roundsRun} round(s), appended ${refreshResult.additionalMemories.length} memory/memories`)
+          console.log(`[memory refresh] Done — ${refreshResult.roundsRun} round(s), appended ${refreshResult.additionalMemories.length} memory/memories`)
         }
       } catch (e) {
         if (e.name !== 'AbortError') console.log('[memory refresh] Error:', e.message)
@@ -1397,31 +1353,31 @@ async function runTurn(input, label, msg = null) {
     // 3. Call Jarvis LLM (can be interrupted by a new message)
     const toolContext = buildToolContextForProcess(msg, injection)
     toolContext.strictEvaluation = strictEvaluation
-    // 瀹¤鍒嗚韩鍙栬瘉锛氭妸鏈疆姝ｅ湪绱Н鐨勫伐鍏锋棩蹇楁暟缁勫紩鐢ㄦ寕杩?toolContext銆俥xecReviewWork 鍦ㄥ惊鐜腑閫?
-    // 琚皟鏃惰瀹冿紝鍗冲彲鎷垮埌"涓?Agent 鍒版涓烘瀹為檯鍋氫簡浠€涔?鐨勭湡瀹炶瘉鎹紙鏁扮粍鎸夊紩鐢ㄤ紶閫掞紝璋冪敤鏃跺凡濉厖锛夈€?
-    // 杩欐槸瀹¤鐙珛鎬х殑鎵块噸澧欌€斺€斾富 Agent 鏃犳硶鍦?review_work 鍙傛暟閲岀矇楗版垨鐪佺暐瀹冨仛杩囩殑浜嬨€?
+    // 审视分身取证：把本轮正在累积的工具日志数组引用挂进 toolContext。execReviewWork 在循环中途
+    // 被调时读它，即可拿到"主 Agent 到此为止实际做了什么"的真实证据（数组按引用传递，调用时已填充）。
+    // 这是审视独立性的承重墙——主 Agent 无法在 review_work 参数里粉饰或省略它做过的事。
     toolContext.turnToolLog = toolCallLog
     voiceTurn = isVoiceChannel(msg?.channel)
-    // localReply锛氭湰鍦版笭閬擄紙璇煶 / TUI锛岄潪绀句氦锛変笅绾枃鏈嵆鍥炲锛屾ā鍨嬫棤闇€璋?send_message鈥斺€?
-    // runtime 鍗忚鍏滃簳浼氭浛瀹冪湡姝ｆ姇閫掞紙鍚闊?TTS锛夈€傜ぞ浜ゆ笭閬擄紙寰俊/Discord/椋炰功/浼佸井锛夋墠蹇呴』
-    // send_message 鎵嶈兘閫佽揪澶栭儴骞冲彴銆傜渷鎺?send_message 閭ｄ竴鏁磋疆棰濆 LLM 璋冪敤鏄闊虫彁閫熺殑鍏抽敭銆?
+    // localReply：本地渠道（语音 / TUI，非社交）下纯文本即回复，模型无需调 send_message——
+    // runtime 协议兜底会替它真正投递（含语音 TTS）。社交渠道（微信/Discord/飞书/企微）才必须
+    // send_message 才能送达外部平台。省掉 send_message 那一整轮额外 LLM 调用是语音提速的关键。
     localReply = !!msg?.fromId && !silentSignal && !isExternalChannel(msg?.channel)
     let turnTools = resolveTurnTools(injection.tools, { silentSignal, strictEvaluation })
-    // 璇煶杞挙鎺?send_message锛堢敤鎴峰喅绛栵級锛氳闊冲洖澶嶇洿鎺ヨ蛋绾枃鏈?鈫?runtime 鍗忚鍏滃簳 executeTool
-    // 鎶曢€?+ 鑷姩 TTS锛屾ā鍨嬫棦涓嶅繀涔熶笉鑳借皟 send_message锛屽交搴曟秷闄?璋冨伐鍏烽偅涓€杞?鐨勫欢杩燂紝涔熶笉璁╁畠
-    // 鍦?UI 閲屾樉寮忓嚭鐜般€備緥澶栵細娑堟伅鎰忓浘鏄庢樉瑕佸線澶栭儴/绀句氦娓犻亾鍙戯紙"鍙戝埌鎴戝井淇?绛夛級鏃朵繚鐣欙紝鍚﹀垯妯″瀷
-    // 澶熶笉鍒板鍙戦€氶亾銆傛挙鐨勫彧鏄ā鍨嬬殑宸ュ叿鍏ュ彛鈥斺€旀湰鍦版姇閫掗€氶亾锛坒allback / slow-ack锛変笉鍙楀奖鍝嶃€?
+    // 语音轮撤掉 send_message（用户决策）：语音回复直接走纯文本 → runtime 协议兜底 executeTool
+    // 投递 + 自动 TTS，模型既不必也不能调 send_message，彻底消除"调工具那一轮"的延迟，也不让它
+    // 在 UI 里显式出现。例外：消息意图明显要往外部/社交渠道发（"发到我微信"等）时保留，否则模型
+    // 够不到外发通道。撤的只是模型的工具入口——本地投递通道（fallback / slow-ack）不受影响。
     if (voiceTurn && !silentSignal && !voiceTurnNeedsSendMessage(input)) {
       turnTools = turnTools.filter(t => t !== 'send_message')
     }
-    // thinking 涓嶇敤"娑堟伅鏄惁 trivial"鐨勬鍒欏垽瀹氭潵寮€鍏?reasoning锛氭祬灞傛ā寮忎笉璇ユ浛妯″瀷鍐冲畾"杩欓鐢ㄤ笉鐢ㄦ兂"
-    // 鈥斺€斿鍚堟剰鍥句笅浼氭妸闇€瑕?reasoning 鐨勯儴鍒嗚鍒ゃ€傛槸鍚︽€濊€冪敱銆岀敤鎴峰湪璁剧疆閲岀殑鏄惧紡閫夋嫨銆?config.thinking) 鍐冲畾锛?
-    // 榛樿鍏抽棴銆佺敤鎴蜂富鍔ㄥ紑鍚墠鎬濊€冿紱杩欐槸鐢ㄦ埛鐨勯€夋嫨锛屼笉鏄?runtime 鎸夐毦搴︽浛瀹冨垽瀹氥€?
+    // thinking 不用"消息是否 trivial"的正则判定来开关 reasoning：浅层模式不该替模型决定"这题用不用想"
+    // ——复合意图下会把需要 reasoning 的部分误判。是否思考由「用户在设置里的显式选择」(config.thinking) 决定，
+    // 默认关闭、用户主动开启才思考；这是用户的选择，不是 runtime 按难度替它判定。
     //
-    // 娴佸紡鍥炲锛歰nStream 鎶?text/think 涓ょ妯″紡鐨?token 閫愬潡鍚愬嚭銆俢urStreamMode 璺熻釜褰撳墠妯″紡
-    // 璁?stream_chunk 涔熷甫涓?mode锛堝墠绔嵁姝ゅ尯鍒?鎬濊€冩祦"涓?姝ｆ枃娴?锛夈€俿awTextStream 鏍囪鏈疆
-    // 鏄惁娴佸嚭杩囨鏂団€斺€旇嫢鏄紝鍒欒闊?TTS 鐢卞墠绔竟鍑鸿竟閫愬彞鍚堟垚锛堣 onToolCall 鐨?autoSpeak 瀹堝崼锛夛紝
-    // 鍚庣涓嶅啀鏁存琛ヤ竴娆?autoSpeakForVoiceReply锛岄伩鍏嶉噸澶嶅康銆?
+    // 流式回复：onStream 把 text/think 两种模式的 token 逐块吐出。curStreamMode 跟踪当前模式
+    // 让 stream_chunk 也带上 mode（前端据此区分"思考流"与"正文流"）。sawTextStream 标记本轮
+    // 是否流出过正文——若是，则语音 TTS 由前端边出边逐句合成（见 onToolCall 的 autoSpeak 守卫），
+    // 后端不再整段补一次 autoSpeakForVoiceReply，避免重复念。
     let curStreamMode = null
     let sawTextStream = false
     llmResult = await callLLM({
@@ -1444,27 +1400,27 @@ async function runTurn(input, label, msg = null) {
           parsed = JSON.parse(resultText)
           if (parsed && parsed.ok === false) ok = false
         } catch {
-          ok = !/^(閿欒|璇锋眰澶辫触|鎵ц澶辫触|鍛戒护瓒呮椂|鍛戒护鎵ц澶辫触|error|failed|execution failed|command timed out)/.test(resultText.trim())
+          ok = !/^(错误|请求失败|执行失败|命令超时|命令执行失败|error|failed|execution failed|command timed out)/.test(resultText.trim())
         }
-        // callLLM 鐨勫崗璁厹搴曚細鐢?__fallback 鏍囪瀹冧唬涓烘姇閫掔殑閭ｆ send_message锛?
-        // 璁╀笅鏂归仴娴嬭兘鍖哄垎"妯″瀷鑷繁鍙戠殑"涓?runtime 鍏滃簳鍙戠殑"銆傝鏍囪涓嶈繘 UI 浜嬩欢銆?
+        // callLLM 的协议兜底会用 __fallback 标记它代为投递的那次 send_message，
+        // 让下方遥测能区分"模型自己发的"与"runtime 兜底发的"。该标记不进 UI 事件。
         const isFallbackDelivery = !!(args && args.__fallback)
-        // __ack锛氳€楁椂宸ュ叿鐨勫嵆鏃跺洖搴旓紙"鎴戞煡涓€涓嬧€?锛夌敱 llm.js 鐩存姇鍚庤ˉ璋冩湰鍥炶皟锛屼粎涓鸿Е鍙戣闊?TTS
-        // 锛圱TS 鍙寕鍦ㄨ繖閲岋級銆傛爣璁伴渶鍓ョ锛岄伩鍏嶆硠杩?tool_call 浜嬩欢 / toolCallLog銆?
+        // __ack：耗时工具的即时回应（"我查一下…"）由 llm.js 直投后补调本回调，仅为触发语音 TTS
+        // （TTS 只挂在这里）。标记需剥离，避免泄进 tool_call 事件 / toolCallLog。
         const isAckDelivery = !!(args && args.__ack)
         const cleanArgs = (isFallbackDelivery || isAckDelivery) ? { ...args } : args
         if (isFallbackDelivery) delete cleanArgs.__fallback
         if (isAckDelivery) delete cleanArgs.__ack
-        // 鎴柇绛栫暐锛氫繚璇?JSON 浠嶅彲瑙ｆ瀽锛屽惁鍒欏墠绔牸寮忓寲鍣ㄤ細鍥為€€灞曠ず鍘熷 JSON 鏂囨湰銆?
-        // 浼樺厛鍘嬬缉 stdout/stderr/content/snippet 绛夐暱瀛楁锛屽啀鏁翠綋 stringify锛岃€岄潪绮楁毚 slice銆?
+        // 截断策略：保证 JSON 仍可解析，否则前端格式化器会回退展示原始 JSON 文本。
+        // 优先压缩 stdout/stderr/content/snippet 等长字段，再整体 stringify，而非粗暴 slice。
         const resultForEvent = truncateToolResultForUI(parsed, resultText)
         emitEvent('tool_call', { name, args: cleanArgs, result: resultForEvent, ok })
         toolCallLog.push({ name, args: cleanArgs, result: resultText.slice(0, 500), ok, fallback: isFallbackDelivery, ack: isAckDelivery })
-        // 娉細send_message 鐨?conversations 鍐欏叆宸茬敱 executor.js 鍐呯粺涓€澶勭悊锛堝甫 channel + external_party_id锛?
-        // 杩欓噷浠呭鐞嗚闊宠緭鍏ョ殑 TTS 鑷姩鍥炴斁
-        // 璇煶娓犻亾鎵嶈嚜鍔ㄦ挱鎶ャ€傛湰杞嫢娴佸嚭杩囨鏂囷紙sawTextStream锛夛紝璇存槑鍓嶇宸茶竟鍑鸿竟閫愬彞娴佸紡鍚堟垚锛?
-        // 鍚庣涓嶅啀鏁存琛ヤ竴娆★紝鍚﹀垯浼氬拰鍓嶇娴佸紡閲嶅蹇点€備粎褰撴病鏈夋鏂囨祦锛堟瀬灏戯細妯″瀷鐩存帴鍙戜簡 send_message
-        // 鑰屾病娴佷换浣曟鏂囷級鏃舵墠鐢卞悗绔厹搴曟暣娈靛悎鎴愶紝淇濊瘉璇煶涓嶄細鍙樺搼銆?
+        // 注：send_message 的 conversations 写入已由 executor.js 内统一处理（带 channel + external_party_id）
+        // 这里仅处理语音输入的 TTS 自动回放
+        // 语音渠道才自动播报。本轮若流出过正文（sawTextStream），说明前端已边出边逐句流式合成，
+        // 后端不再整段补一次，否则会和前端流式重复念。仅当没有正文流（极少：模型直接发了 send_message
+        // 而没流任何正文）时才由后端兜底整段合成，保证语音不会变哑。
         if (name === 'send_message' && args?.content && isVoiceChannel(msg?.channel) && !sawTextStream) {
           const speakText = String(args.content).trim()
           if (speakText) autoSpeakForVoiceReply(speakText)
@@ -1479,9 +1435,9 @@ async function runTurn(input, label, msg = null) {
       onStream: ({ event, mode, text, name }) => {
         if (event === 'start') {
           curStreamMode = mode
-          // plainReply锛氭湰鍦版笭閬擄紙璇煶 / TUI锛岄潪绀句氦锛変笅姝ｆ枃娴佸嵆鐢ㄦ埛鍙鍥炲鈥斺€斿墠绔嵁姝ゆ妸姝ｆ枃瀹炴椂
-          //   鎵撹繘鑱婂ぉ姘旀场锛堢ぞ浜ゆ笭閬撳洖澶嶅湪 send_message 宸ュ叿鍙傛暟閲岋紝姝ｆ枃娴侀潪鍥炲锛屼笉瀹炴椂鏄剧ず锛夈€?
-          // speak锛氳闊宠疆鎵嶈嚜鍔ㄦ挱鎶モ€斺€斿墠绔嵁姝ゅ姝ｆ枃娴侀€愬彞娴佸紡鍚堟垚銆?
+          // plainReply：本地渠道（语音 / TUI，非社交）下正文流即用户可见回复——前端据此把正文实时
+          //   打进聊天气泡（社交渠道回复在 send_message 工具参数里，正文流非回复，不实时显示）。
+          // speak：语音轮才自动播报——前端据此对正文流逐句流式合成。
           emitEvent('stream_start', {
             mode,
             plainReply: mode === 'text' && localReply,
@@ -1511,7 +1467,7 @@ async function runTurn(input, label, msg = null) {
   if (llmResult.aborted) {
     // WeChat-style interruption: discard partial output; the next round will naturally pick up this context from conversationWindow.
     // Mark this tick as aborted so onTick's finally block skips tick decrement and exploration advance.
-    console.log('[system] Current processing interrupted by new message 鈥?partial output discarded')
+    console.log('[system] Current processing interrupted by new message — partial output discarded')
     lastTickAborted = true
     return
   }
@@ -1525,26 +1481,26 @@ async function runTurn(input, label, msg = null) {
   finishTurn(response)
 
   // User messages must not fail silently: if the model generated a response but forgot to call send_message,
-  // the runtime delivers it as a fallback. **鍗曚竴鏉冨▉**锛氭姇閫掕繖浠朵簨鐜板湪瀹屽叏鐢?callLLM 璐熻矗鈥斺€?
-  //   callLLM 鍦?mustReply && !delivered && 鏈夊彲鎶曢€掓枃鏈椂锛岀洿鎺ヨ蛋鐪熸鐨?send_message 鎵ц鍣?
-  //   锛坋xecuteTool锛変唬涓烘姇閫掞紝浠庤€屽鐢?executor 鐨勫幓閲?/ open_question / social 娲惧彂锛屽苟鎶?
-  //   action_log 鏍囨垚 source:'fallback'锛堜笉鍙橀噺 #8锛夈€傛姇閫掓垚鍔熷悗 llmResult.delivered=true銆?
-  // 鍥犳 index.js 涓嶅啀浠?toolCallLog 鏈」浜屾鎺ㄥ"鏄惁宸插洖澶?锛屼篃涓嶅啀鎵嬪伐 emit+dispatch+insert锛?
-  //   杩欓噷鍙墿閬ユ祴锛氭牴鎹?callLLM 杩斿洖鐨勬潈濞?delivered 淇″彿鍖哄垎"鍏滃簳鎶曞嚭浜?涓?瀹屽叏鏃犲彲鎶曢€掓枃鏈?銆?
-  //   silentSignal 杞?callLLM 鍐呴儴宸插畧鍗粷涓嶆姇閫掞紙涓嶅彉閲?#1锛夛紝杩欓噷涔熺敤鍚屼竴瀹堝崼璺宠繃閬ユ祴鍣０銆?
+  // the runtime delivers it as a fallback. **单一权威**：投递这件事现在完全由 callLLM 负责——
+  //   callLLM 在 mustReply && !delivered && 有可投递文本时，直接走真正的 send_message 执行器
+  //   （executeTool）代为投递，从而复用 executor 的去重 / open_question / social 派发，并把
+  //   action_log 标成 source:'fallback'（不变量 #8）。投递成功后 llmResult.delivered=true。
+  // 因此 index.js 不再从 toolCallLog 末项二次推导"是否已回复"，也不再手工 emit+dispatch+insert，
+  //   这里只剩遥测：根据 callLLM 返回的权威 delivered 信号区分"兜底投出了"与"完全无可投递文本"。
+  //   silentSignal 轮 callLLM 内部已守卫绝不投递（不变量 #1），这里也用同一守卫跳过遥测噪声。
   if (msg && msg.fromId && !silentSignal) {
     const lastToolCall = toolCallLog[toolCallLog.length - 1]
-    // "妯″瀷鑷繁鍙戠殑鏈€缁堝洖澶? = 鏈」鏄?send_message 涓斾笉鏄?runtime 鍏滃簳鎵撶殑鏍囪銆?
-    //   鍏滃簳鎶曢€掕櫧鐒朵篃浼氬湪 toolCallLog 鐣欎笅涓€鏉?send_message锛堝甫 fallback:true锛夛紝浣嗛偅涓嶇畻妯″瀷閬靛畧鍗忚銆?
+    // "模型自己发的最终回复" = 末项是 send_message 且不是 runtime 兜底打的标记。
+    //   兜底投递虽然也会在 toolCallLog 留下一条 send_message（带 fallback:true），但那不算模型遵守协议。
     const modelSentExplicitly = lastToolCall?.name === 'send_message' && !lastToolCall?.fallback
     if (!modelSentExplicitly) {
       if (llmResult.delivered && localReply) {
-        // 鏈湴娓犻亾锛堣闊?/ TUI锛夛細绾枃鏈洿鎶曟槸璁捐鍐呯殑蹇矾寰勶紝涓嶆槸鍗忚杩濊鈥斺€斾笉鍙?violation 閬ユ祴銆?
-        //   callLLM 鍏滃簳宸茬湡姝ｆ姇閫掞紙鍚闊?TTS / 鍘婚噸 / source:'fallback' 钀藉簱锛夈€?
+        // 本地渠道（语音 / TUI）：纯文本直投是设计内的快路径，不是协议违规——不发 violation 遥测。
+        //   callLLM 兜底已真正投递（含语音 TTS / 去重 / source:'fallback' 落库）。
         console.log(`[local reply] Plain-text reply delivered to ${msg.fromId} without send_message (fast path)`)
       } else if (llmResult.delivered) {
-        // 绀句氦娓犻亾锛氭ā鍨嬭繚鍙嶄簡"鍥炲=璋?send_message"鍗忚浣嗚 runtime 鍏滃簳鏁戝洖鈥斺€旇涓€鏉￠仴娴嬩究浜庤娴嬭繚瑙勭巼銆?
-        console.warn(`[protocol fallback] Model did not call send_message 鈥?callLLM delivered the response body to ${msg.fromId}`)
+        // 社交渠道：模型违反了"回复=调 send_message"协议但被 runtime 兜底救回——记一条遥测便于观测违规率。
+        console.warn(`[protocol fallback] Model did not call send_message — callLLM delivered the response body to ${msg.fromId}`)
         emitEvent('protocol_violation', {
           label,
           reason: 'missing_send_message_fallback_delivered',
@@ -1552,7 +1508,7 @@ async function runTurn(input, label, msg = null) {
           content: response.slice(0, 500),
         })
       } else {
-        // 鏃㈡病鏄惧紡 send_message锛宑allLLM 涔熸病鑳藉厹搴曟姇閫掞紙鏃犲彲鎶曢€掓鏂?/ 琚腑姝?绛夛級鈫?绾仴娴嬨€?
+        // 既没显式 send_message，callLLM 也没能兜底投递（无可投递正文 / 被中止 等）→ 纯遥测。
         console.warn(`[protocol violation] Model did not call send_message and runtime had nothing deliverable to fall back on. from=${msg.fromId}`)
         emitEvent('protocol_violation', {
           label,
@@ -1564,7 +1520,7 @@ async function runTurn(input, label, msg = null) {
     }
   }
 
-  // 鍗忚鏍囪瑙ｆ瀽锛氬崟涓€鐪熺浉婧?src/runtime/markers.js锛堝彧瑙ｆ瀽锛屽壇浣滅敤鐣欏湪涓嬫柟鍘熷湴锛夈€?
+  // 协议标记解析：单一真相源 src/runtime/markers.js（只解析，副作用留在下方原地）。
   const markers = parseMarkers(response)
 
   // 4. Detect [RECALL: ...]
@@ -1605,7 +1561,7 @@ async function runTurn(input, label, msg = null) {
       insertMemory({
         event_type: 'task_complete',
         content: `Task completed: ${clearedTask.slice(0, 60)}`,
-        detail: 'Task marked complete via [CLEAR_TASK] 鈥?no further execution',
+        detail: 'Task marked complete via [CLEAR_TASK] — no further execution',
         entities: [], concepts: [], tags: ['task_complete'],
         timestamp: nowTimestamp(),
       })
@@ -1618,9 +1574,9 @@ async function runTurn(input, label, msg = null) {
     state.recentActions.push({ ts: nowTimestamp(), summary })
     if (state.recentActions.length > 5) state.recentActions.shift()
 
-    // 绾跨储妯″瀷锛堣璇嗚淇锛夛細Agent 骞叉椿鏈韩灏辨槸娉ㄦ剰鍔涗簨浠垛€斺€旇鍔ㄨ€呯洿鎺ュ０鏄庯紝涓嶇粡杩囧綊灞炲垽瀹氥€?
-    // touch 寮€鏀炬壙璇虹殑绾跨储锛堟病鏈夊氨 touch 鍓嶅彴锛夛紝鍒锋柊 lastEventAt銆?
-    // 杩欎竴鏉℃秷鐏簡涓撴敞鏍堟椂浠ｇ殑"骞叉椿鏃跺抚楗挎"锛坱ask 妯″紡 30s/tick 脳 20 = 10 鍒嗛挓鍗冲け鐒︼級銆?
+    // 线索模型（认识论修正）：Agent 干活本身就是注意力事件——行动者直接声明，不经过归属判定。
+    // touch 开放承诺的线索（没有就 touch 前台），刷新 lastEventAt。
+    // 这一条消灭了专注栈时代的"干活时帧饿死"（task 模式 30s/tick × 20 = 10 分钟即失焦）。
     try {
       if (touchCommitmentThread(state, { tick: state.tickCounter || 0 })) {
         saveThreadState(state.threadState)
@@ -1628,7 +1584,7 @@ async function runTurn(input, label, msg = null) {
     } catch {}
   }
 
-  // Option B: task idle detection 鈥?auto-clear after N consecutive ticks with no tool calls
+  // Option B: task idle detection — auto-clear after N consecutive ticks with no tool calls
   if (state.task && isTick) {
     if (toolCallLog.length === 0) {
       state.taskIdleTickCount++
@@ -1642,7 +1598,7 @@ async function runTurn(input, label, msg = null) {
   }
 
   // 6. Recognizer: split think block and response body, pass full experience.
-  //    Runs in the background 鈥?does not block the next message/TICK.
+  //    Runs in the background — does not block the next message/TICK.
   const thinkMatch = response.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/i)
   const jarvisThink = thinkMatch ? thinkMatch[1].trim() : ''
   const jarvisText = response.replace(/<think(?:ing)?>[\s\S]*?<\/think(?:ing)?>/gi, '').trim()
@@ -1653,8 +1609,8 @@ async function runTurn(input, label, msg = null) {
     return
   }
 
-  // 鍘绘姈鎵瑰鐞嗭細鎶婃湰杞帓杩涜瘑鍒槦鍒楋紝鐢?scheduler 鍐冲畾浣曟椂鍚堝苟鎴愪竴娆℃壒閲?recognizer 璋冪敤
-  // 锛堢┖闂?鏀掓弧/瓒呮椂/鐢ㄨ繃鑰愪箙淇℃伅宸ュ叿鏃?flush锛夈€備笉鍐嶆瘡杞竴娆?LLM 璋冪敤銆?
+  // 去抖批处理：把本轮排进识别队列，由 scheduler 决定何时合并成一次批量 recognizer 调用
+  // （空闲/攒满/超时/用过耐久信息工具时 flush）。不再每轮一次 LLM 调用。
   enqueueTurnForRecognition({
     userMessage: input,
     jarvisThink,
@@ -1669,17 +1625,17 @@ let processing = false
 let lastTickAborted = false
 let currentTimer = null  // timer for the next pending tick; can be cleared by pushMessage to run immediately
 
-// 鎶?runTurn 鐢?watchdog 鍖呬竴灞傦細瓒呮椂 鈫?寮?abort + reject锛岃 onTick 鐨?finally 鑳借窇銆?
-// processing 娓呮帀銆俽unTurn 鍐呴儴閭ｄ釜姘歌繙涓?resolve 鐨?promise 鐣欏湪鍚庡彴锛屾渶缁堣 GC銆?
+// 把 runTurn 用 watchdog 包一层：超时 → 强 abort + reject，让 onTick 的 finally 能跑、
+// processing 清掉。runTurn 内部那个永远不 resolve 的 promise 留在后台，最终被 GC。
 async function runTurnWithWatchdog(input, label, msg) {
   let timer = null
   const watchdog = new Promise((_, reject) => {
     timer = setTimeout(() => {
       const stuckLabel = currentExecution?.label || label
       const elapsedS = currentExecution ? Math.round((Date.now() - currentExecution.startedAt) / 1000) : null
-      console.error(`[watchdog] runTurn 鍗℃ ${RUN_TURN_WATCHDOG_MS / 1000}s 鏈繑鍥?(label=${stuckLabel}, elapsed=${elapsedS}s)锛屽己鍒?abort`)
+      console.error(`[watchdog] runTurn 卡死 ${RUN_TURN_WATCHDOG_MS / 1000}s 未返回 (label=${stuckLabel}, elapsed=${elapsedS}s)，强制 abort`)
       try { currentAbortController?.abort?.('watchdog timeout') } catch {}
-      // 绔嬪嵆娓呮帀鍏ㄥ眬 execution 寮曠敤锛岄伩鍏嶅悗缁?message 杩涙潵杩?abort 鍚屼竴涓?controller
+      // 立即清掉全局 execution 引用，避免后续 message 进来还 abort 同一个 controller
       currentAbortController = null
       currentExecution = null
       try { emitEvent('error', { label: 'watchdog', error: `runTurn stuck > ${RUN_TURN_WATCHDOG_MS / 1000}s` }) } catch {}
@@ -1715,17 +1671,17 @@ async function onTick() {
       await runTurnWithWatchdog(tick, 'L2 TICK', null)
     }
   } catch (err) {
-    // runTurn 鎶涢敊锛堝惈 watchdog 瓒呮椂鍜?runTurn 鍐呴儴 LLM 涔嬪悗鏈崟鑾风殑寮傚父锛夊繀椤诲悶鎺夛紝
-    // 鍚﹀垯浼氬啋娉″埌 setTimeout 鍥炶皟澶栧眰锛岀粫杩?scheduleNextTick 鈫?涓诲惊鐜仠鎽嗐€?
+    // runTurn 抛错（含 watchdog 超时和 runTurn 内部 LLM 之后未捕获的异常）必须吞掉，
+    // 否则会冒泡到 setTimeout 回调外层，绕过 scheduleNextTick → 主循环停摆。
     if (err?.name === 'WatchdogTimeoutError') {
       lastTickAborted = true
     } else {
-      console.error('[onTick] runTurn 鎶涘嚭鏈鐞嗗紓甯?', err?.stack || err?.message || err)
+      console.error('[onTick] runTurn 抛出未处理异常:', err?.stack || err?.message || err)
     }
   } finally {
     processing = false
     consumeTickerTick()
-    // When interrupted by the user, do not decrement the tick or advance exploration 鈥?retry next heartbeat
+    // When interrupted by the user, do not decrement the tick or advance exploration — retry next heartbeat
     if (!lastTickAborted) {
       decrementAwakeningTick()
       // Do not advance exploration index during self-check; exploration begins sequentially after self-check ends
@@ -1735,11 +1691,11 @@ async function onTick() {
 }
 
 // Schedule priority (high to low):
-//   1. Messages pending 鈫?0
-//   2. 429 rate-limited 鈫?quota's 10-minute interval
-//   3. L2 custom cadence (ttl > 0) 鈫?L2-specified value
-//   4. Task active 鈫?30s
-//   5. Idle 鈫?config.tickInterval
+//   1. Messages pending → 0
+//   2. 429 rate-limited → quota's 10-minute interval
+//   3. L2 custom cadence (ttl > 0) → L2-specified value
+//   4. Task active → 30s
+//   5. Idle → config.tickInterval
 function scheduleNextTick() {
   if (!isRunning()) return
   if (currentTimer) { clearTimeout(currentTimer); currentTimer = null }
@@ -1768,7 +1724,7 @@ function scheduleNextTick() {
   } else if (customMs !== null) {
     const ticker = getTickerStatus()
     interval = customMs
-    label = `L2 custom ${interval / 1000}s (${ticker.ttl} tick(s) remaining${ticker.reason ? ' 路 ' + ticker.reason : ''})`
+    label = `L2 custom ${interval / 1000}s (${ticker.ttl} tick(s) remaining${ticker.reason ? ' · ' + ticker.reason : ''})`
   } else if (getAwakeningTicks() > 0) {
     const awTicks = getAwakeningTicks()
     interval = 10000
@@ -1794,8 +1750,8 @@ function scheduleNextTick() {
   emitEvent('quota', { ...quota, nextTickMs: interval, ticker: getTickerStatus(), queue: queueSnapshot })
   currentTimer = setTimeout(async () => {
     currentTimer = null
-    // try/finally 鍏滃簳锛氬嵆浣?onTick 鎶涢敊锛堢悊璁轰笂 onTick 鑷繁宸?catch锛寃atchdog 涔熷悶浜?
-    // 寮傚父锛夛紝涔熶繚璇?scheduleNextTick 鎬昏璋冪敤锛屼富寰幆涓嶄細鍥犱负鍗曡疆寮傚父姘镐箙鍋滄憜銆?
+    // try/finally 兜底：即使 onTick 抛错（理论上 onTick 自己已 catch，watchdog 也吞了
+    // 异常），也保证 scheduleNextTick 总被调用，主循环不会因为单轮异常永久停摆。
     try {
       await onTick()
     } catch (err) {
@@ -1812,7 +1768,7 @@ function triggerImmediateTick() {
   if (processing) return  // rely on abort + the post-finish scheduleNextTick to continue
   if (!isRunning()) return
   if (currentTimer) { clearTimeout(currentTimer); currentTimer = null }
-  // 寮傛鍚姩涓€杞紝涓嶇瓑缁撴灉
+  // 异步启动一轮，不等结果
   ;(async () => {
     try {
       await onTick()
@@ -1838,7 +1794,7 @@ async function startConsciousnessLoop({ runImmediateTick = true } = {}) {
   // Register interrupt callback: when a new message arrives, interrupt the current LLM call and trigger the next tick immediately (don't wait for the timer)
   setInterruptCallback((entry) => {
     if (currentAbortController && shouldPreemptFor(entry)) {
-      console.log(`[system] Higher-priority message arrived 鈥?interrupting current processing: ${entry.fromId} (${entry.queueName})`)
+      console.log(`[system] Higher-priority message arrived — interrupting current processing: ${entry.fromId} (${entry.queueName})`)
       emitEvent('processing_preempted', {
         by: entry.fromId,
         queueName: entry.queueName,
@@ -1869,13 +1825,13 @@ async function startConsciousnessLoop({ runImmediateTick = true } = {}) {
 async function main() {
   console.log('Jarvis starting...')
 
-  // 鍚姩鏃舵墦鍗版仮澶嶇殑绾跨储鐘舵€侊紝渚夸簬"閲嶅惎涓嶄涪绾跨储/鎵胯"鐨勭洿瑙傞獙璇併€?
+  // 启动时打印恢复的线索状态，便于"重启不丢线索/承诺"的直观验证。
   {
     const ts = ensureThreadState(state)
     if (ts.threads.length > 0) {
       const fg = getForegroundThread(state)
       const open = ts.commitments.filter(c => c.status === 'open').length
-      console.log(`[threads] 鎭㈠ ${ts.threads.length} 鏉＄嚎绱紙鍓嶅彴锛?{fg ? describeThread(fg) : '鏃?}锛涘紑鏀炬壙璇?${open} 涓級`)
+      console.log(`[threads] 恢复 ${ts.threads.length} 条线索（前台：${fg ? describeThread(fg) : '无'}；开放承诺 ${open} 个）`)
     }
   }
 
@@ -1886,10 +1842,10 @@ async function main() {
   if (persona) {
     console.log(`[system] Persona loaded: ${persona.slice(0, 60)}...`)
   } else {
-    console.log('[system] No persona set 鈥?waiting for Jarvis to self-define')
+    console.log('[system] No persona set — waiting for Jarvis to self-define')
   }
 
-  // Start HTTP API 鈥?must start regardless of activation status; the activation page depends on it
+  // Start HTTP API — must start regardless of activation status; the activation page depends on it
   const apiPort = Number(process.env.BAILONGMA_PORT) || 3721
   startAPI(apiPort, {
     getStateSnapshot: () => ({
@@ -1912,7 +1868,7 @@ async function main() {
   })
   startSocialConnectors({ pushMessage, emitEvent }).catch(err => console.warn('[social] startup failed:', err.message))
 
-  // 鎭㈠閲嶅惎鍓嶆湭瀹屾垚鐨?AI 瑙嗛鐢熸垚浠诲姟锛堢户缁疆璇紝閬垮厤闈㈡澘姘歌繙鍗♀€滅敓鎴愪腑鈥濓級
+  // 恢复重启前未完成的 AI 视频生成任务（继续轮询，避免面板永远卡“生成中”）
   try { resumePendingVideoJobs() } catch (err) { console.warn('[aivideo] resume failed:', err.message) }
 
   // Start TUI

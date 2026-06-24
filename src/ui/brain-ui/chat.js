@@ -1,4 +1,4 @@
-﻿import { createMarkdownBody } from "./markdown.js";
+import { createMarkdownBody } from "./markdown.js";
 
 // 把数据库/事件里的细粒度 channel 名转成 UI 友好的简化标签
 export function friendlyChannelLabel(channel) {
@@ -207,32 +207,6 @@ export function initChat({
     labelSpan.textContent = labelText;
     div.appendChild(labelSpan);
     div.appendChild(createMarkdownBody(text));
-
-    // 用户消息添加编辑/重发按钮
-    if (role === "user") {
-      const actions = document.createElement("span");
-      actions.className = "msg-actions";
-      const editBtn = document.createElement("button");
-      editBtn.className = "msg-action-btn";
-      editBtn.textContent = "✏️ 编辑";
-      editBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        msgInput.value = text;
-        autoGrowInput();
-        msgInput.focus();
-        div.remove();
-      });
-      const resendBtn = document.createElement("button");
-      resendBtn.className = "msg-action-btn";
-      resendBtn.textContent = "🔄 重发";
-      resendBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        send({ text });
-      });
-      actions.appendChild(editBtn);
-      actions.appendChild(resendBtn);
-      div.appendChild(actions);
-    }
     chatMessages.appendChild(div);
 
     while (chatMessages.children.length > maxHistory) {
@@ -263,26 +237,7 @@ export function initChat({
 
   // text 显式传入时直接发送、不经过输入框（语音识别用：voice 完全不在 msg-input 留草稿）；
   // 不传 text 则保持原行为，从输入框读取并清空。
-    // 工具栏状态
-  let currentModel = localStorage.getItem("bailongma_quick_model") || "auto";
-  let sandboxEnabled = localStorage.getItem("bailongma_sandbox_enabled") !== "false";
-
-  function setModel(modelId) {
-    currentModel = modelId;
-    try { localStorage.setItem("bailongma_quick_model", modelId); } catch {}
-    if (typeof onModelChange === "function") onModelChange(modelId);
-  }
-
-  function getModel() { return currentModel; }
-
-  function setSandbox(enabled) {
-    sandboxEnabled = enabled;
-    try { localStorage.setItem("bailongma_sandbox_enabled", String(enabled)); } catch {}
-    if (typeof onSandboxToggle === "function") onSandboxToggle(enabled);
-  }
-
-  function isSandboxEnabled() { return sandboxEnabled; }
-async function send({ channel = null, label = null, text = null } = {}) {
+  async function send({ channel = null, label = null, text = null } = {}) {
     if (inputLocked) return;
     const fromInput = (text == null);
     const content = (fromInput ? msgInput.value : text).trim();
@@ -349,45 +304,6 @@ async function send({ channel = null, label = null, text = null } = {}) {
   });
   sendBtn.addEventListener("click", () => send());
 
-  // ── 鼠标选中即复制 + 中键粘贴 ──
-  // 选中即复制：在聊天消息区域选中文字后自动复制到剪贴板
-  chatMessages.addEventListener("mouseup", () => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-    if (!chatMessages.contains(sel.anchorNode) && !chatMessages.contains(sel.focusNode)) return;
-    const text = sel.toString().trim();
-    if (text) {
-      navigator.clipboard.writeText(text).catch(() => {});
-    }
-  });
-
-  // 中键粘贴：在聊天区域按中键，粘贴剪贴板内容到输入框
-  chatArea.addEventListener("mousedown", async (e) => {
-    if (e.button !== 1) return;
-    e.preventDefault();
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text && text.trim()) {
-        if (document.activeElement === msgInput && msgInput.value.trim()) {
-          msgInput.value += text;
-        } else {
-          msgInput.value = text;
-        }
-        autoGrowInput();
-        msgInput.focus();
-        openChat();
-      }
-    } catch {
-      // 剪贴板读取失败，静默忽略
-    }
-  });
-
-  // 阻止中键在聊天消息上的默认行为
-  chatMessages.addEventListener("mousedown", (e) => {
-    if (e.button === 1) e.preventDefault();
-  });
-
-
   // 初始未聚焦：显示语音输入提示
   if (!inputLocked) msgInput.placeholder = idlePlaceholder();
 
@@ -415,21 +331,6 @@ async function send({ channel = null, label = null, text = null } = {}) {
       cmd: "/video", keys: ["video", "视频", "视频生成", "seedance", "huoshan"],
       label: "配置视频生成", desc: "AI 视频生成 · 火山方舟 Seedance",
       run: prefillVideoConfig,
-    },
-    {
-      cmd: "/learn", keys: ["learn", "学习", "教", "xuexi", "skill"],
-      label: "教我一个技能", desc: "描述工作流程，Agent 自动生成 SKILL.md",
-      run: () => { msgInput.value = "/learn "; autoGrowInput(); msgInput.focus(); },
-    },
-    {
-      cmd: "/model", keys: ["model", "模型", "切换", "qiehuan"],
-      label: "切换模型", desc: "快速切换 LLM 模型（DeepSeek / OpenAI / Anthropic）",
-      run: () => openSettings?.("llm"),
-    },
-    {
-      cmd: "/sandbox", keys: ["sandbox", "沙箱", "安全"],
-      label: "沙箱开关", desc: "开启/关闭文件与命令执行沙箱",
-      run: () => openSettings?.("security"),
     },
     {
       cmd: "/help", keys: ["help", "帮助", "命令"],
@@ -659,15 +560,5 @@ async function send({ channel = null, label = null, text = null } = {}) {
     restoreChatHistory,
     send,
     unlockAudioOnFirstGesture,
-    getModel,
-    setModel,
-    isSandboxEnabled,
-    setSandbox,
-    // 暴露给 app.js 用于工具栏
-    getInput: () => msgInput,
-    getSendBtn: () => sendBtn,
-    setInputValue: (v) => { msgInput.value = v; autoGrowInput(); },
-    getInputValue: () => msgInput.value,
-    focusInput: () => { try { msgInput.focus(); } catch {} },
   };
 }

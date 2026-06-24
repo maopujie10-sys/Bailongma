@@ -1,5 +1,5 @@
-/**
- * prebuild-clean.mjs â€?Cross-platform dist directory cleanup.
+ï»¿/**
+ * prebuild-clean.mjs â€” Cross-platform dist directory cleanup.
  *
  * Removes the output `dist/` directory before a fresh build.
  * Works on macOS, Linux, and Windows (replaces prebuild-clean.ps1).
@@ -16,7 +16,7 @@ if (!existsSync(distPath)) {
 }
 
 try {
-  console.log('[prebuild] SKIPPED dist clean ¡ª dist preserved per user request');
+  console.log('[prebuild] SKIPPED dist clean â€” dist preserved per user request');
   console.log('[prebuild] dist removed');
 } catch (err) {
   console.error(`[prebuild] clean failed: ${err.message}`);

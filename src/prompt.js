@@ -1,6 +1,7 @@
-import { nowTimestamp } from './time.js'
+﻿import { nowTimestamp } from './time.js'
 import { buildAgentContextBlock } from './agents/registry.js'
 import { CODING_BLOCK, DIAGNOSE_BLOCK, shouldInjectCoding, shouldInjectDiagnose } from './prompt-blocks/coding-discipline.js'
+import { SOUL_BLOCK, CONSTRAINTS_BLOCK, shouldInjectSoul, shouldInjectConstraints } from './prompt-blocks/soul-discipline.js'
 import { formatUserProfileForPrompt } from './profile/format.js'
 import { getAppVersion } from './version.js'
 
@@ -589,6 +590,13 @@ Always use registered components — inline-template and inline-script are not s
   // 三信号源：消息文本 / 当前 task 文本 / 最近动作模式（write_file+exec 组合）。
   // TICK 自主干活轮靠后两个信号触发，用户一字未发段也在——这是「内化」与「skill 读取」的区别。
   const disciplineSignals = { userMessage, taskText: currentTaskText, recentActionsText: recentActionsSummary }
+  if (shouldInjectSoul(disciplineSignals)) {
+    console.log('[SOUL] SOUL_BLOCK 已注入')
+    prompt += `\n\n${SOUL_BLOCK}`
+    if (shouldInjectConstraints(disciplineSignals)) {
+      prompt += `\n\n${CONSTRAINTS_BLOCK}`
+    }
+  }
   if (shouldInjectCoding(disciplineSignals)) {
     prompt += `\n\n${CODING_BLOCK}`
   }

@@ -1,4 +1,4 @@
-// 按需注入工具选择器（动态上下文记忆池第 4 步）。
+﻿// 按需注入工具选择器（动态上下文记忆池第 4 步）。
 //
 // 之前 injector.js 把约 35-40 个工具 schema 全量塞进每轮 LLM 调用的 tools
 // 字段，单这一项就占 6-9K token。这里按"领域 + 意图"分组，只注入这轮真正
@@ -50,6 +50,18 @@ const REVIEW_TOOLS      = ['review_work']
 const WEB_TOOLS         = ['web_search', 'fetch_url', 'browser_read']
 const FILESYSTEM_TOOLS  = ['read_file', 'write_file', 'delete_file', 'list_dir', 'make_dir']
 const EXEC_TOOLS        = ['exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command', 'download_file', 'kill_process', 'list_processes']
+
+
+const DEPLOY_EXEC_KEYWORDS = [
+  '部署', '服务器', '部署服务器', 'ssh', 'SSH',
+  'npm', 'git', '上线', '发布', '重启',
+  '启动', '停止', '打包', 'build',
+  'PowerShell', 'powershell', 'cmd', 'shell'
+]
+
+function hasDeployExecIntent(text = '') {
+  return DEPLOY_EXEC_KEYWORDS.some(k => String(text).includes(k))
+}
 const SOFTWARE_INSTALL_TOOLS = [...WEB_TOOLS, 'download_file', 'exec_task_command', 'exec_command', 'list_processes', ...FILESYSTEM_TOOLS]
 const MEDIA_TOOLS       = ['media_mode', 'music']
 const REMINDER_TOOLS    = ['manage_reminder']
@@ -344,7 +356,7 @@ export function selectTools(ctx = {}) {
   if (hits(body, FILESYSTEM_TRIGGERS)) {
     for (const t of FILESYSTEM_TOOLS) out.add(t)
   }
-  if (hits(body, EXEC_TRIGGERS)) {
+  if (hits(body, EXEC_TRIGGERS) || hasDeployExecIntent(messageBody)) {
     for (const t of EXEC_TOOLS) out.add(t)
   }
   if (hits(body, WEB_TRIGGERS) || isTick) {

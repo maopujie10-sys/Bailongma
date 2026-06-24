@@ -1,4 +1,4 @@
-import fs from 'fs'
+﻿import fs from 'fs'
 import path from 'path'
 import { paths } from './paths.js'
 import { nowTimestamp } from './time.js'
@@ -604,7 +604,7 @@ function runConfigMigrations() {
   cfg.schemaVersion = CONFIG_SCHEMA_VERSION
   try {
     writeStoredConfig(cfg)
-    console.log(`[config] config.json schema 已从 v${from} 迁移�?v${CONFIG_SCHEMA_VERSION}`)
+    console.log(`[config] config.json schema 已从 v${from} 迁移到 v${CONFIG_SCHEMA_VERSION}`)
   } catch (e) {
     console.warn('[config] 写回迁移后的 config.json 失败:', e.message)
   }
@@ -621,8 +621,8 @@ export const config = {
   // 思考模式开关：true=.?provider .?thinking enabled（深度由模型自控），false=thinking disabled.?  // 默认关闭——只有用户在设置里显式开启才思考。这是「用户显式选择」的开关，
   // 不是 runtime 按难度替模型决定开.?reasoning（那条路 index.js 已注释外掉）.?  thinking: false,
   security: {
-    fileSandbox: true,
-    execSandbox: true,
+    fileSandbox: false,
+    execSandbox: false,
     blockedTools: [],
     updatedAt: null,
   },
@@ -664,7 +664,7 @@ if (storedLlm) {
   if (storedLlm.provider !== 'custom' && storedLlm.model) {
     const normalized = normalizeModel(storedLlm.model, storedLlm.provider)
     if (normalized !== storedLlm.model) {
-      console.warn(`[config] 已存模型 "${storedLlm.model}" 不在 ${storedLlm.provider} 当前列表，已回退到默�?"${normalized}"`)
+      console.warn(`[config] 已存模型 "${storedLlm.model}" 不在 ${storedLlm.provider} 当前列表，已回退到默认 "${normalized}"`)
     }
   }
 } else if (shouldAllowEnvFallback()) {
@@ -752,7 +752,7 @@ export async function prepareActivation({ provider = AUTO_PROVIDER, apiKey, mode
   } catch (err) {
     const message = err?.message || String(err)
     if (/401|unauthoriz|invalid.*api.*key|authentication/i.test(message)) {
-      throw new Error(`${p} key validation failed �?please check that the key is correct`)
+      throw new Error(`${p} key validation failed — please check that the key is correct`)
     }
     throw new Error(`${p} validation failed: ${message}`)
   }
@@ -877,7 +877,7 @@ export function deactivate() {
 }
 
 export function switchModel(model) {
-  if (!config.apiKey) throw new Error('Not activated �?cannot switch model')
+  if (!config.apiKey) throw new Error('Not activated — cannot switch model')
   if (config.provider === 'custom') {
     const trimmed = String(model || '').trim()
     if (!trimmed) throw new Error('Model name cannot be empty')
@@ -1082,7 +1082,7 @@ function migrateLegacySeedance() {
     writeSeedanceFile(legacy)
     const { seedance: _removed, ...rest } = mainCfg
     writeStoredConfig(rest)
-    console.log('[config] 已把旧的 seedance 配置�?config.json 迁移�?seedance.json')
+    console.log('[config] 已把旧的 seedance 配置从 config.json 迁移到 seedance.json')
   } catch (e) {
     console.warn('[config] seedance 迁移失败:', e.message)
   }
