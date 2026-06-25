@@ -30,6 +30,7 @@ function ensureDir(dir) {
 export const paths = {
   userDir: USER_DIR,
   resourcesDir: RESOURCES_DIR,
+  src: path.join(RESOURCES_DIR, 'src'),
 
   dataDir: ensureDir(path.join(USER_DIR, 'data')),
   dbFile: path.join(USER_DIR, 'data', 'jarvis.db'),

@@ -46,6 +46,22 @@ const createPrimaryPanel = () => `
     <div class="stream-inner" id="si-l1"></div>
   </div>
 
+  <!-- 面板标签切换 -->
+  <div class="panel-tabs" id="panel-tabs-l1">
+    <button class="panel-tab active" data-tab="main" type="button">📊 面板</button>
+    <button class="panel-tab" data-tab="files" type="button">📁 文件</button>
+  </div>
+
+  <div class="file-tree-container" id="file-tree-container" style="display:none;">
+    <div class="file-tree-header">
+      <span class="file-tree-title">sandbox/</span>
+      <button class="file-tree-refresh" id="file-tree-refresh" type="button" title="刷新">🔄</button>
+    </div>
+    <div class="file-tree" id="file-tree">
+      <div class="file-tree-empty">暂无文件数据</div>
+    </div>
+  </div>
+
   <div class="panel-actions">
     <button class="reset-view" id="reset-view-btn" type="button">重置节点图</button>
 
@@ -110,6 +126,25 @@ const createSecondaryPanel = () => `
     <div class="stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细">
       <span class="stat-label">抽取/h</span>
       <div class="stat-value" id="mem-extract-rate">—</div>
+    </div>
+    <!-- Token / 成本统计 -->
+    <div class="cost-stats" id="cost-stats" style="display:none;">
+      <div class="cost-row">
+        <span>本轮 tokens</span>
+        <span class="cost-val mono" id="cost-tokens">—</span>
+      </div>
+      <div class="cost-row">
+        <span>缓存命中</span>
+        <span class="cost-val mono" id="cost-cache-hit">—</span>
+      </div>
+      <div class="cost-row">
+        <span>本轮费用</span>
+        <span class="cost-val mono" id="cost-round">—</span>
+      </div>
+      <div class="cost-row">
+        <span>今日累计</span>
+        <span class="cost-val mono" id="cost-today">—</span>
+      </div>
     </div>
   </header>
 

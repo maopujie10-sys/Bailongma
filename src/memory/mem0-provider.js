@@ -189,3 +189,23 @@ export const Mem0Provider = {
   init: initMem0,
   healthCheck,
 };
+
+// === 自动注册（启动时尝试激活，失败则静默跳过） ===
+import { registerMemoryProvider, setActiveMemoryProviders, getActiveMemoryProviderNames } from './provider-registry.js'
+
+registerMemoryProvider('mem0', Mem0Provider)
+
+// 尝试初始化并激活 mem0
+initMem0().then(ok => {
+  if (ok) {
+    const current = getActiveMemoryProviderNames()
+    if (!current.includes('mem0')) {
+      setActiveMemoryProviders([...current, 'mem0'])
+    }
+    console.log('[Mem0Provider] ✅ 第二记忆库已激活 (ChromaDB)')
+  } else {
+    console.log('[Mem0Provider] ⚠️ 初始化失败，使用 SQLite 单后端运行')
+  }
+}).catch(() => {
+  console.log('[Mem0Provider] ⚠️ Python/mem0 不可用，使用 SQLite 单后端运行')
+})

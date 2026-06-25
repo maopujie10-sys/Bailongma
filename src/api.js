@@ -18,7 +18,7 @@ import { restartConnector } from './social/index.js'
 // manager.js (Whisper local server) removed
 import { replaceProvider } from './providers/registry.js'
 import { getAllAgents } from './agents/registry.js'
-import { persistAppState } from './capabilities/executor.js'
+import { persistAppState, approvalEmitter } from './capabilities/executor.js'
 import { execGenerateVideo, saveGeneratedVideo, setAIVideoPanelState, getVideoHistory, stripMarkdownForSpeech } from './capabilities/tools/media.js'
 import { MinimaxProvider } from './providers/minimax.js'
 import { handleSocialWebhook, isSocialWebhookPath } from './social/webhooks.js'
@@ -211,6 +211,78 @@ function decodeRequestBody(buffer, contentType = '') {
   }
 }
 
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+// 轻量 multipart/form-data 解析器（Buffer 级别，不引入第三方依赖）
+function parseMultipart(buf, boundary) {
+  const files = []
+  const boundaryBuf = Buffer.from(boundary, 'utf8')
+  const crlf = Buffer.from('\r\n')
+  const doubleCrlf = Buffer.from('\r\n\r\n')
+
+  // 找到每个 boundary 的位置
+  let pos = buf.indexOf(boundaryBuf)
+  while (pos !== -1) {
+    const partStart = pos + boundaryBuf.length
+    // 跳过 boundary 后的 --（结束标记）和 crlf
+    const afterBoundary = buf.slice(partStart, partStart + 2)
+    if (afterBoundary.equals(Buffer.from('--'))) break  // 结束 boundary
+    const contentStart = afterBoundary.equals(crlf) ? partStart + 2 : partStart
+
+    // 找到下一个 boundary 作为 part 结束位置
+    const nextBoundary = buf.indexOf(boundaryBuf, contentStart)
+    if (nextBoundary === -1) break
+    // part body 起始（去掉末尾 crlf + 可能的前导 boundary）
+    let partEnd = nextBoundary - 2  // 去掉 boundary 前的 \r\n
+    if (partEnd > contentStart && buf.slice(partEnd, partEnd + 2).equals(crlf)) {
+      // already correct
+    }
+
+    const partBuf = buf.slice(contentStart, nextBoundary - 2)
+
+    // 解析 header 和 body
+    const headerEnd = partBuf.indexOf(doubleCrlf)
+    if (headerEnd === -1) { pos = nextBoundary; continue }
+    const headerSection = partBuf.slice(0, headerEnd).toString('utf8')
+    const bodyData = partBuf.slice(headerEnd + 4)
+    // 去掉末尾的 \r\n
+    const cleanBody = bodyData.slice(-2).equals(crlf) ? bodyData.slice(0, -2) : bodyData
+
+    const nameMatch = headerSection.match(/name="([^"]+)"/)
+    const filenameMatch = headerSection.match(/filename="([^"]+)"/)
+    const ctMatch = headerSection.match(/Content-Type:\s*([^\r\n]+)/i)
+    if (filenameMatch) {
+      files.push({
+        fieldname: nameMatch?.[1] || 'file',
+        filename: filenameMatch[1],
+        contentType: ctMatch?.[1]?.trim() || 'application/octet-stream',
+        data: cleanBody,
+      })
+    }
+    pos = nextBoundary
+  }
+  return files
+}
+
+function guessExt(contentType) {
+  const m = {
+    'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif',
+    'image/webp': '.webp', 'image/bmp': '.bmp', 'image/svg+xml': '.svg',
+    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+    'text/plain': '.txt', 'text/html': '.html', 'text/css': '.css',
+    'text/javascript': '.js', 'application/json': '.json',
+    'application/pdf': '.pdf', 'application/zip': '.zip',
+  }
+  return m[contentType] || '.bin'
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
@@ -383,6 +455,46 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
         jsonResponse(res, 200, { ok: true, agent_name: getAgentName() })
       } catch (e) {
         jsonResponse(res, 400, { error: e.message })
+      }
+      return
+    }
+
+    // POST /upload — 文件上传（拖拽/粘贴到聊天窗口），保存到 mediaDir 并返回可访问 URL
+    if (req.method === 'POST' && url.pathname === '/upload') {
+      try {
+        const ct = req.headers['content-type'] || ''
+        if (!ct.startsWith('multipart/form-data')) {
+          jsonResponse(res, 400, { error: '需要 multipart/form-data' })
+          return
+        }
+        const boundary = '--' + ct.split('boundary=')[1]?.trim()
+        if (!boundary || boundary === '--') {
+          jsonResponse(res, 400, { error: '缺少 boundary' })
+          return
+        }
+        const buf = await readBody(req)
+        const files = parseMultipart(buf, boundary)
+        if (!files.length) {
+          jsonResponse(res, 400, { error: '未收到文件' })
+          return
+        }
+
+        const results = []
+        for (const file of files) {
+          const hash = crypto.createHash('sha256').update(file.data).digest('hex').slice(0, 16)
+          const ext = path.extname(file.filename || '') || guessExt(file.contentType)
+          const safeName = `${hash}${ext}`
+          fs.mkdirSync(paths.mediaDir, { recursive: true })
+          fs.writeFileSync(path.join(paths.mediaDir, safeName), file.data)
+          results.push({
+            filename: file.filename,
+            url: `/media/chat/${safeName}`,
+            size: file.data.length,
+          })
+        }
+        jsonResponse(res, 200, { ok: true, files: results })
+      } catch (e) {
+        jsonResponse(res, 500, { error: `上传失败: ${e.message}` })
       }
       return
     }
@@ -1729,6 +1841,75 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           jsonResponse(res, 500, { error: e.message })
         }
       })
+      return
+    }
+
+    // POST /approval-response — 前端审批弹窗回传审批结果
+    // Body: { approvalId: string, action: 'allow' | 'always_allow' | 'deny' }
+    if (req.method === 'POST' && url.pathname === '/approval-response') {
+      try {
+        const body = await readJsonBody(req)
+        const { approvalId, action } = body
+        if (!approvalId || !action) {
+          return jsonResponse(res, 400, { error: 'approvalId and action are required' })
+        }
+        if (!['allow', 'always_allow', 'deny'].includes(action)) {
+          return jsonResponse(res, 400, { error: 'action must be allow, always_allow, or deny' })
+        }
+        console.log(`[API] 审批响应: ${approvalId} → ${action}`)
+        approvalEmitter.emit(approvalId, { action, approvalId })
+        jsonResponse(res, 200, { ok: true })
+      } catch (e) {
+        jsonResponse(res, 400, { error: e.message })
+      }
+      return
+    }
+
+    // GET /sandbox-files?path= — 浏览沙箱目录文件列表
+    if (req.method === 'GET' && url.pathname === '/sandbox-files') {
+      try {
+        const requestedPath = url.searchParams.get('path') || ''
+        // 安全检查：拒绝路径穿越
+        if (requestedPath.includes('..')) {
+          return jsonResponse(res, 403, { ok: false, error: '路径不允许包含 ..' })
+        }
+        const sandboxRoot = path.resolve(SANDBOX_PATH)
+        const targetPath = requestedPath
+          ? path.resolve(sandboxRoot, requestedPath)
+          : sandboxRoot
+
+        // 二次验证：确保最终路径仍在 sandbox 内
+        if (!isPathInside(sandboxRoot, targetPath)) {
+          return jsonResponse(res, 403, { ok: false, error: '路径越界，拒绝访问' })
+        }
+
+        if (!fs.existsSync(targetPath)) {
+          return jsonResponse(res, 404, { ok: false, error: `路径不存在: ${requestedPath || '/'}` })
+        }
+
+        const stat = fs.statSync(targetPath)
+        if (!stat.isDirectory()) {
+          return jsonResponse(res, 400, { ok: false, error: '指定的路径不是目录' })
+        }
+
+        const entries = fs.readdirSync(targetPath, { withFileTypes: true })
+        const files = entries.map(entry => {
+          const fullPath = path.join(targetPath, entry.name)
+          let size = 0
+          let type = 'dir'
+          if (entry.isFile()) {
+            type = 'file'
+            try { size = fs.statSync(fullPath).size } catch { size = 0 }
+          }
+          return { name: entry.name, type, size }
+        })
+
+        // 相对路径用于前端面包屑展示
+        const relPath = path.relative(sandboxRoot, targetPath).replace(/\\/g, '/') || '/'
+        jsonResponse(res, 200, { ok: true, files, path: relPath })
+      } catch (e) {
+        jsonResponse(res, 500, { ok: false, error: e.message })
+      }
       return
     }
 

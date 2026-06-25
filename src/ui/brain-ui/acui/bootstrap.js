@@ -1,4 +1,5 @@
 import { startACUI } from "./client.js";
+import { mount, unmount } from "./renderer.js";
 
 export function bootstrapACUI() {
   let acuiHost = document.getElementById("acui-host");
@@ -20,5 +21,9 @@ export function bootstrapACUI() {
   const wsHost = location.host || "localhost:3721";
   const wsUrl = `${wsProto}//${wsHost}/acui`;
   startACUI({ wsUrl, hostElement: acuiHost });
+
+  // 暴露 mount/unmount 供外部（app.js）通过 SSE 事件触发 ACUI 组件
+  window.__acuiMount = mount;
+  window.__acuiUnmount = unmount;
 }
 

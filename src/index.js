@@ -30,6 +30,7 @@ import { seedSandboxOnce, seedMusicOnce, rescueDataFromInstallDir } from './path
 import { ensureSkillMemories } from './memory/seed-skills.js'
 import { loadInstalledTools } from './capabilities/marketplace/index.js'
 import './memory/providers/sqlite.js'  // auto-registers SQLiteMemoryProvider
+import './memory/mem0-provider.js'       // auto-registers Mem0Provider (第二记忆库)
 import { resumePendingVideoJobs, getAIVideoPanelState } from './capabilities/tools/media.js'
 import { dispatchSocialMessage } from './social/dispatch.js'
 import { startSocialConnectors } from './social/index.js'
@@ -40,6 +41,7 @@ import { collectInstalledSoftware, getInstalledSoftwareBlock } from './installed
 import { collectLocalResources } from './local-resources-scanner.js'
 import { collectGeoWeather, getGeoWeatherBlock } from './geo-weather.js'
 import { collectTrending, getTrendingBlock } from './trending.js'
+import { classifyComplexity, selectModel, isEnabled as costSaverEnabled, recordCall } from './cost-saver.js'
 import { collectAgents, buildAgentContextBlock, buildDelegationAskDirections } from './agents/registry.js'
 import { dispatchToArmy, probeArmyEngines } from './agents/army-adapter.js'
 import { refreshSkills, selectSkillsForMessage, formatSkillsForContext } from './skills/registry.js'
@@ -1380,6 +1382,26 @@ async function runTurn(input, label, msg = null) {
     // 后端不再整段补一次 autoSpeakForVoiceReply，避免重复念。
     let curStreamMode = null
     let sawTextStream = false
+
+    // CostSaver: route simple messages to cheap model
+    let costSaverModelOverride = null
+    if (costSaverEnabled()) {
+      try {
+        const complexity = classifyComplexity(input)
+        const selected = selectModel(complexity)
+        if (selected) {
+          costSaverModelOverride = selected
+          console.log(`[CostSaver] route "${input.slice(0, 40)}..." to ${selected}`)
+        }
+      } catch (err) {
+        console.warn('[CostSaver] routing failed, use main model:', err.message)
+      }
+    }
+    const originalModel = config.model
+    if (costSaverModelOverride) {
+      config.model = costSaverModelOverride
+    }
+
     llmResult = await callLLM({
       systemPrompt,
       message: input,
@@ -1461,6 +1483,14 @@ async function runTurn(input, label, msg = null) {
       return
     }
   } finally {
+    // CostSaver: record call and restore original model
+    try {
+      if (costSaverModelOverride) recordCall({ routedToCheap: true })
+    } catch (_) {}
+    if (costSaverModelOverride && config.model !== originalModel) {
+      config.model = originalModel
+      console.log(`[CostSaver] restore model to ${originalModel}`)
+    }
     clearExecution(controller)
   }
 

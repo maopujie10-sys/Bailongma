@@ -304,6 +304,133 @@ export function initChat({
   });
   sendBtn.addEventListener("click", () => send());
 
+  // ── 拖拽投喂 & 粘贴 ──────────────────────────────────────────────
+  // 把文件/图片/视频拖入或粘贴到聊天窗口，自动读取并投喂给白龙马
+  let dragOverlay = null
+  let dragCounter = 0
+
+  function ensureDragOverlay() {
+    if (dragOverlay) return
+    dragOverlay = document.createElement('div')
+    dragOverlay.id = 'drag-overlay'
+    dragOverlay.innerHTML = '<div class="drag-hint"><span class="drag-icon">🐉</span><p>松手投喂白龙马</p><small>图片 · 代码 · 文档 · 视频</small></div>'
+    document.body.appendChild(dragOverlay)
+  }
+
+  function showDragOverlay() { ensureDragOverlay(); dragOverlay.classList.add('show') }
+  function hideDragOverlay() { dragCounter = 0; if (dragOverlay) dragOverlay.classList.remove('show') }
+
+  // 判断是否为可投喂的文件类型
+  const IMG_TYPES = ['image/png','image/jpeg','image/gif','image/webp','image/bmp','image/svg+xml']
+  const CODE_EXTS = ['.js','.ts','.py','.java','.go','.rs','.c','.cpp','.h','.cs','.rb','.php','.swift','.kt','.sh','.bash','.ps1','.sql','.yaml','.yml','.toml','.xml','.json','.css','.html','.vue','.jsx','.tsx','.md','.txt','.cfg','.ini','.env','.conf','.log','.csv']
+  const VIDEO_TYPES = ['video/mp4','video/webm','video/quicktime','video/x-msvideo']
+  const CODE_MAX = 512 * 1024  // 512KB — 代码文件直接读到内存
+
+  function isImage(file) { return IMG_TYPES.includes(file.type) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(file.name) }
+  function isVideo(file) { return VIDEO_TYPES.includes(file.type) || /\.(mp4|webm|mov|avi)$/i.test(file.name) }
+  function isCode(file) { return CODE_EXTS.some(ext => file.name.toLowerCase().endsWith(ext)) }
+
+  async function feedFile(file) {
+    if (isImage(file)) {
+      // 大图片 → 上传后端；小图片 → base64 data URL 内联
+      if (file.size > 2 * 1024 * 1024) {
+        const form = new FormData(); form.append('file', file)
+        const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form })
+        if (!resp.ok) throw new Error('上传失败')
+        const result = await resp.json()
+        const url = result.files?.[0]?.url
+        if (!url) throw new Error('上传响应缺少 url')
+        msgInput.value += `\n![${file.name}](${url})\n`
+      } else {
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result)
+          reader.onerror = reject
+          reader.readAsDataURL(file)
+        })
+        msgInput.value += `\n![${file.name}](${dataUrl})\n`
+      }
+      autoGrowInput(); openChat(); msgInput.focus()
+      return
+    }
+
+    if (isCode(file) && file.size <= CODE_MAX) {
+      // 代码/文本文件 → 读取内容 → 直接发送 /learn
+      const text = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsText(file)
+      })
+      const lang = file.name.split('.').pop()
+      const msg = `/学习\n从文件 \`${file.name}\` 学习：\n\n\`\`\`${lang}\n${text}\n\`\`\``
+      await send({ text: msg })
+      return
+    }
+
+    // 视频/其他文件 → 上传后端 → 获取 URL → 插入输入框
+    const form = new FormData()
+    form.append('file', file)
+    const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}))
+      throw new Error(err.error || `上传失败 HTTP ${resp.status}`)
+    }
+    const result = await resp.json()
+    const uploaded = result.files?.[0]
+    if (!uploaded?.url) throw new Error('上传响应缺少 url')
+
+    if (isVideo(file)) {
+      msgInput.value += `\n<video src="${uploaded.url}" controls width="320"></video>\n`
+    } else {
+      msgInput.value += `\n[${file.name}](${uploaded.url})\n`
+    }
+    autoGrowInput()
+    openChat()
+    msgInput.focus()
+  }
+
+  async function handleFiles(files) {
+    for (const file of files) {
+      try {
+        await feedFile(file)
+      } catch (e) {
+        console.warn('[feed]', file.name, e.message)
+        addMsg('jarvis', `投喂失败 \`${file.name}\`: ${e.message}`, { alert: false, pending: false })
+      }
+    }
+  }
+
+  // 全局拖拽事件 — 拖文件到窗口任意位置即可投喂
+  document.addEventListener('dragenter', e => {
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault(); dragCounter++; showDragOverlay()
+  })
+  document.addEventListener('dragover', e => {
+    if (!e.dataTransfer?.types?.includes('Files')) return
+    e.preventDefault(); e.dataTransfer.dropEffect = 'copy'
+  })
+  document.addEventListener('dragleave', e => {
+    dragCounter--
+    if (dragCounter <= 0) hideDragOverlay()
+  })
+  document.addEventListener('drop', async e => {
+    e.preventDefault(); hideDragOverlay()
+    const files = e.dataTransfer?.files
+    if (files?.length) { openChat(); await handleFiles(files) }
+  })
+
+  // 粘贴事件 — Ctrl+V 粘贴图片直接渲染
+  msgInput.addEventListener('paste', async e => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files = []
+    for (const item of items) {
+      if (item.kind === 'file') files.push(item.getAsFile())
+    }
+    if (files.length) { e.preventDefault(); openChat(); await handleFiles(files) }
+  })
+
   // 初始未聚焦：显示语音输入提示
   if (!inputLocked) msgInput.placeholder = idlePlaceholder();
 

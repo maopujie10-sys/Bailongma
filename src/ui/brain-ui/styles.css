@@ -4270,3 +4270,253 @@ body.worldcup-mode .console > #voice-panel .voice-transcript {
   z-index: 2;
 }
 .wc-exit-btn:hover { color: #eaf2ff; background: rgba(30, 50, 120, 0.8); }
+
+/* ── 拖拽投喂遮罩 ──────────────────────────────────────────────── */
+#drag-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(8, 12, 30, 0.88);
+  backdrop-filter: blur(12px);
+  border: 3px dashed rgba(180, 200, 255, 0.45);
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+#drag-overlay.show { display: flex; }
+.drag-hint { text-align: center; color: #d0dcff; user-select: none; }
+.drag-hint .drag-icon { font-size: 64px; display: block; margin-bottom: 12px; }
+.drag-hint p { font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: 0.04em; }
+.drag-hint small { font-size: 13px; opacity: 0.65; }
+
+/* ── 拖拽时输入框高亮 ────────────────────────────────────────────── */
+body.drag-over #input-row { border-color: var(--warm, #f0a060); box-shadow: 0 0 18px rgba(240,160,96,0.35); }
+
+/* ── 内联视频消息 ────────────────────────────────────────────────── */
+.msg-video {
+  display: block;
+  max-width: min(400px, 100%);
+  max-height: 360px;
+  width: auto; height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(255,255,255,0.12));
+  background: #000;
+}
+.msg-body .msg-video + br { display: none; }
+
+/* ── Token / 成本统计（panel-l2） ───────────────────────────────────── */
+.cost-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 6px;
+  margin-bottom: 8px;
+  border-top: 1px solid var(--line);
+  opacity: 0.82;
+}
+.cost-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  color: var(--ink2);
+}
+.cost-row .mono {
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-size: 10px;
+}
+
+/* ── 审批卡片 overlay（已由 ACUI center placement 管理，这里是补充） ── */
+.acui-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  opacity: 0; transition: opacity 0.25s;
+}
+.acui-backdrop.acui-enter-active { opacity: 1; }
+.acui-backdrop.acui-exit-active { opacity: 0; }
+
+/* ── Diff 预览 ──────────────────────────────────────────────────────── */
+.diff-view {
+  margin: 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-deep, #0d141d);
+}
+.diff-collapse-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.diff-stats {
+  color: var(--ink2);
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+}
+.diff-expand-btn {
+  padding: 2px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--cool);
+  font-size: 10px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.diff-expand-btn:hover { background: rgba(255,255,255,0.06); }
+.diff-collapsed { max-height: 0; overflow: hidden; }
+.diff-view.expanded .diff-collapsed { max-height: none; }
+.diff-lines { overflow-x: auto; }
+.diff-code {
+  display: block;
+  padding: 8px 0;
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre;
+  color: var(--ink);
+  background: transparent;
+}
+.diff-code span {
+  display: block;
+  padding: 0 12px;
+  border-left: 3px solid transparent;
+  min-height: 1em;
+}
+.diff-add  { background: rgba(46, 204, 113, 0.10); border-left-color: #2ecc71; color: #8ef5b6; }
+.diff-del  { background: rgba(231, 76, 60, 0.10); border-left-color: #e74c3c; color: #f5a19c; }
+.diff-ctx  { color: var(--ink2); }
+.diff-hunk { background: rgba(79, 140, 255, 0.08); border-left-color: var(--cool); color: #7eadff; font-weight: 500; }
+.diff-header { color: var(--dim); font-weight: 600; }
+
+/* ── 面板标签切换 ──────────────────────────────────────────────────── */
+.panel-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.panel-tab {
+  padding: 6px 14px;
+  font-size: 11px;
+  border: none;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-family: inherit;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.panel-tab:hover { color: var(--ink2); }
+.panel-tab.active { color: var(--cool); border-bottom-color: var(--cool); }
+
+/* ── 文件树 ────────────────────────────────────────────────────────── */
+.file-tree-container {
+  margin-bottom: 10px;
+}
+.file-tree-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+.file-tree-title {
+  font-size: 11px;
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  color: var(--ink2);
+  font-weight: 600;
+}
+.file-tree-refresh {
+  padding: 1px 6px;
+  border: none;
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 12px;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.file-tree-refresh:hover { background: rgba(255,255,255,0.06); }
+.file-tree {
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.file-tree-empty {
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+  padding: 16px 0;
+  opacity: 0.6;
+}
+.file-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-tree-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-tree-list li:hover { background: rgba(255,255,255,0.05); }
+.file-tree-dir { font-weight: 500; }
+.file-icon { font-size: 13px; flex: none; width: 18px; text-align: center; }
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+}
+.file-tree-dir .file-name { color: var(--cool); }
+
+/* ── 文件预览弹窗（简单） ───────────────────────────────────────────── */
+.file-preview-overlay {
+  position: fixed; inset: 0; z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6);
+}
+.file-preview-modal {
+  background: var(--panel-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  padding: 20px 24px;
+  min-width: 320px;
+  max-width: 600px;
+  max-height: 70vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-console);
+}
+.file-preview-title {
+  font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 10px;
+  font-family: "JetBrains Mono", monospace;
+}
+.file-preview-content {
+  font-family: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--ink2);
+  max-height: 50vh;
+  overflow-y: auto;
+  background: var(--bg-deep);
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}

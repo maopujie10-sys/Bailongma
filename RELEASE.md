@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- `0.1.1`
+- `2.4.2`
 
 ## What This Release Includes
 
@@ -19,19 +19,19 @@
 ## Local Build
 
 ```powershell
-cd D:\claude\BaiLongma
+cd D:\Projects\AI项目\BaiLongma-main
 npm install
 npm run build
 ```
 
 Installer output:
 
-- `D:\claude\BaiLongma\dist\Bailongma Setup 0.1.1.exe`
-- `D:\claude\BaiLongma\dist\latest.yml`
+- `D:\Projects\AI项目\BaiLongma-main\dist-build\Bailongma-Setup-2.4.2.exe`
+- `D:\Projects\AI项目\BaiLongma-main\dist-build\latest.yml`
 
 ## Local Verification Checklist
 
-1. Install `Bailongma Setup 0.1.1.exe`.
+1. Install `Bailongma-Setup-2.4.2.exe`.
 2. Launch the app and confirm the activation page appears on first run.
 3. Enter a valid API key and verify the app enters `brain-ui`.
 4. Uninstall the app.
@@ -46,16 +46,16 @@ Installer output:
 4. Set the token in the current shell.
 
 ```powershell
-cd D:\claude\BaiLongma
+cd D:\Projects\AI项目\BaiLongma-main
 $env:GH_TOKEN = "ghp_your_token"
 npm run publish
 ```
 
 Published artifacts:
 
-- GitHub Release asset: `Bailongma Setup 0.1.1.exe`
+- GitHub Release asset: `Bailongma-Setup-2.4.2.exe`
 - GitHub Release asset: `latest.yml`
-- GitHub Release asset: `Bailongma Setup 0.1.1.exe.blockmap`
+- GitHub Release asset: `Bailongma-Setup-2.4.2.exe.blockmap`
 
 ## Notes On First Launch Of The Installer
 

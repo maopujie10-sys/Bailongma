@@ -1,5 +1,19 @@
 import { config } from '../config.js'
 
+// ── 会话级白名单 ──────────────────────────────────────────────────────
+// 用户选择"始终允许"某个工具后，该工具在当前会话内免审批直接放行。
+const sessionWhitelist = new Set()
+
+export function addToWhitelist(toolName) {
+  sessionWhitelist.add(toolName)
+  console.log(`[tool-policy] 工具 "${toolName}" 已加入会话白名单`)
+}
+
+export function clearWhitelist() {
+  sessionWhitelist.clear()
+  console.log('[tool-policy] 会话白名单已清空')
+}
+
 const TOOL_RISK = {
   read_file: 'low',
   list_dir: 'low',
@@ -79,16 +93,56 @@ export function isDangerousShellCommand(command) {
 
 export function evaluateToolPolicy(name, args = {}, context = {}) {
   const risk = classifyTool(name)
+
+  // 会话白名单：用户已选择"始终允许" → 直接放行
+  if (sessionWhitelist.has(name)) {
+    console.log(`[tool-policy] 工具 "${name}" 在会话白名单中，直接放行`)
+    return { status: 'allowed', risk, reason: 'session whitelist' }
+  }
+
+  // 安全策略已明确禁用的工具 → blocked
   const blockedTools = config.security?.blockedTools || []
   if (blockedTools.includes(name)) {
-    return { allowed: false, risk, reason: `工具 "${name}" 已被安全策略禁用` }
+    return { status: 'blocked', risk, reason: `工具 "${name}" 已被安全策略禁用` }
   }
+
+  // 危险命令检测 → blocked（此检查与审批无关，是硬性安全规则）
   if (['exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command'].includes(name)) {
     const reasons = isDangerousShellCommand(args.command || args.cmd || '')
-    if (reasons.length) return { allowed: false, risk, reason: reasons.join('; ') }
+    if (reasons.length) return { status: 'blocked', risk, reason: reasons.join('; ') }
   }
-  if (context.autonomous && risk === 'high' && !context.allowHighRiskAutonomy) {
-    return { allowed: false, risk, reason: 'high-risk tool requires an explicit user-driven context' }
+
+  // risk low → 直接放行
+  if (risk === 'low') {
+    return { status: 'allowed', risk, reason: '' }
   }
-  return { allowed: true, risk, reason: '' }
+
+  // risk medium → 审批（除非已在白名单，上面已处理）
+  if (risk === 'medium') {
+    return {
+      status: 'approval_required',
+      risk,
+      reason: `工具 "${name}" 风险等级为 medium，需要用户确认`,
+    }
+  }
+
+  // risk high → 审批
+  if (risk === 'high') {
+    // 自主模式且未授权高风险自主 → 仍然需要审批
+    if (context.autonomous && !context.allowHighRiskAutonomy) {
+      return {
+        status: 'approval_required',
+        risk: 'high',
+        reason: 'high-risk tool in autonomous mode requires user approval',
+      }
+    }
+    return {
+      status: 'approval_required',
+      risk: 'high',
+      reason: `工具 "${name}" 风险等级为 high，需要用户确认`,
+    }
+  }
+
+  // 兜底：未知风险等级 → 放行（不应到达这里）
+  return { status: 'allowed', risk, reason: '' }
 }

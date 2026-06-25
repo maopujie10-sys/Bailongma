@@ -8,6 +8,59 @@ const PROTECTED_FILES = new Set(['readme.txt', 'world.txt', 'package.json'])
 function toolJson(payload) {
   return JSON.stringify(payload, null, 2)
 }
+
+// ── Diff 工具 ────────────────────────────────────────────────────────
+// 简单的行级对比：统计新增行、删除行，生成 unified diff 风格的文本摘要。
+// 注意：这不是完整的 diff 算法，而是基于包含检查的快速对比，
+// 适合给 LLM 展示文件变更概览。
+function generateDiffSummary(oldContent, newContent) {
+  const oldLines = oldContent.split('\n')
+  const newLines = newContent.split('\n')
+
+  let added = 0
+  let removed = 0
+
+  // 统计在 new 中有但 old 中没有的行（新增）
+  for (const line of newLines) {
+    if (!oldLines.includes(line)) added++
+  }
+
+  // 统计在 old 中有但 new 中没有的行（删除）
+  for (const line of oldLines) {
+    if (!newLines.includes(line)) removed++
+  }
+
+  // 生成简单的 unified diff 格式文本（前 40 行变更）
+  const diffLines = []
+  const maxContextLines = 40
+  let diffCount = 0
+
+  for (let i = 0; i < Math.max(oldLines.length, newLines.length) && diffCount < maxContextLines; i++) {
+    const oldLine = i < oldLines.length ? oldLines[i] : undefined
+    const newLine = i < newLines.length ? newLines[i] : undefined
+
+    if (oldLine !== newLine) {
+      if (oldLine !== undefined) {
+        diffLines.push(`- ${oldLine}`)
+        diffCount++
+      }
+      if (newLine !== undefined) {
+        diffLines.push(`+ ${newLine}`)
+        diffCount++
+      }
+    }
+  }
+
+  const diff = diffLines.join('\n')
+  const truncated = diffCount >= maxContextLines ? '\n...（变更过多，仅显示前 40 行差异）' : ''
+
+  return {
+    summary: `[diff: +${added} -${removed}]`,
+    diff: diff + truncated,
+    added,
+    removed,
+  }
+}
 export async function execReadFile(args, context = {}) {
   throwIfAborted(context.signal)
   const rawPath = args.path || args.filename || args.file_path
@@ -71,6 +124,21 @@ export async function execWriteFile(args, context = {}) {
   }
   const resolved = path.resolve(SANDBOX_ROOT, filePath)
   assertInSandbox(resolved)
+
+  // ── Diff 生成：写入前检查目标文件是否存在 ─────────────────────────
+  let oldContent = null
+  let diffInfo = null
+  const fileExists = fs.existsSync(resolved)
+  if (fileExists) {
+    try {
+      oldContent = fs.readFileSync(resolved, 'utf-8')
+      diffInfo = generateDiffSummary(oldContent, String(content))
+      console.log(`[filesystem] 文件已存在，生成 diff: ${diffInfo.summary}`)
+    } catch (readErr) {
+      console.warn(`[filesystem] 读取旧文件内容失败，跳过 diff: ${readErr.message}`)
+    }
+  }
+
   fs.mkdirSync(path.dirname(resolved), { recursive: true })
   fs.writeFileSync(resolved, content, 'utf-8')
   const verifiedContent = fs.readFileSync(resolved, 'utf-8')
@@ -87,7 +155,8 @@ export async function execWriteFile(args, context = {}) {
       error: 'read-back verification did not match written content',
     })
   }
-  return toolJson({
+
+  const result = {
     ok: true,
     tool: 'write_file',
     path: filePath,
@@ -95,7 +164,18 @@ export async function execWriteFile(args, context = {}) {
     bytes,
     verified: true,
     content_preview: verifiedContent.slice(0, 120),
-  })
+  }
+
+  // 附上 diff 信息
+  if (diffInfo) {
+    result.overwritten = true
+    result.diff_summary = diffInfo.summary
+    result.diff = diffInfo.diff
+    result.diff_added = diffInfo.added
+    result.diff_removed = diffInfo.removed
+  }
+
+  return toolJson(result)
 }
 
 export async function execDeleteFile(args, context = {}) {

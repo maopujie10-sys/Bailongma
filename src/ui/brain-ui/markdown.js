@@ -93,10 +93,62 @@ export function renderMarkdown(text) {
     quoteLines = [];
   }
 
+  function isDiffCode(lang, lines) {
+    if (lang === 'diff') return true;
+    // 启发式检测：超过 30% 的行以 +- 或 @@ 开头
+    let diffCount = 0;
+    const total = Math.min(lines.length, 50);
+    for (let i = 0; i < total; i++) {
+      const t = lines[i].trim();
+      if (t.startsWith('+') || t.startsWith('-') || t.startsWith('@@') || t.startsWith('diff ')) diffCount++;
+    }
+    return diffCount > 0 && diffCount / total >= 0.30;
+  }
+
+  function renderDiffBlock(lines) {
+    const diffLines = [];
+    let added = 0, removed = 0;
+    for (const line of lines) {
+      const t = line.trimEnd();
+      if (!t) { diffLines.push({ type: 'context', text: ' ' }); continue; }
+      const ch = t[0];
+      if (ch === '+') { diffLines.push({ type: 'add', text: escapeHtml(t) }); added++; }
+      else if (ch === '-') { diffLines.push({ type: 'del', text: escapeHtml(t) }); removed++; }
+      else if (t.startsWith('@@')) { diffLines.push({ type: 'hunk', text: escapeHtml(t) }); }
+      else if (t.startsWith('diff ')) { diffLines.push({ type: 'hdr', text: escapeHtml(t) }); }
+      else { diffLines.push({ type: 'context', text: escapeHtml(t) }); }
+    }
+
+    const collapsed = diffLines.length > 20;
+    const stats = `+${added} −${removed}`;
+    let html = '<div class="diff-view">';
+
+    if (collapsed) {
+      html += '<div class="diff-collapse-bar">';
+      html += '<span class="diff-stats">' + escapeHtml(stats) + ' 行</span>';
+      html += '<button class="diff-expand-btn" onclick="this.closest(\'.diff-view\').classList.toggle(\'expanded\');this.textContent=this.closest(\'.diff-view\').classList.contains(\'expanded\')?\'收起\':\'展开\';return false">展开 ' + diffLines.length + ' 行</button>';
+      html += '</div>';
+    }
+
+    html += '<div class="diff-lines' + (collapsed ? ' diff-collapsed' : '') + '">';
+    html += '<pre><code class="diff-code">';
+    for (const dl of diffLines) {
+      const cls = dl.type === 'add' ? 'diff-add' : dl.type === 'del' ? 'diff-del' : dl.type === 'hunk' ? 'diff-hunk' : dl.type === 'hdr' ? 'diff-header' : 'diff-ctx';
+      html += '<span class="' + cls + '">' + dl.text + '</span>\n';
+    }
+    html += '</code></pre></div>';
+    html += '</div>';
+    return html;
+  }
+
   function flushCode() {
     if (codeFence === null) return;
-    const langClass = codeFence ? ` class="language-${escapeAttr(codeFence)}"` : "";
-    parts.push(`<pre><code${langClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    if (isDiffCode(codeFence, codeLines)) {
+      parts.push(renderDiffBlock(codeLines));
+    } else {
+      const langClass = codeFence ? ` class="language-${escapeAttr(codeFence)}"` : "";
+      parts.push(`<pre><code${langClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    }
     codeFence = null;
     codeLines = [];
   }
@@ -177,6 +229,24 @@ export function createMarkdownBody(text) {
   const body = document.createElement("div");
   body.className = "msg-body";
   body.innerHTML = renderMarkdown(text);
+
+  // 视频链接 → 内联 video 元素（/media/chat/*.mp4/.webm/.mov 等）
+  const links = body.querySelectorAll('a[href]');
+  for (const a of links) {
+    const href = a.getAttribute('href');
+    if (/\.(mp4|webm|mov|avi)(\?|$)/i.test(href)) {
+      const video = document.createElement('video');
+      video.src = href;
+      video.controls = true;
+      video.preload = 'metadata';
+      video.className = 'msg-video';
+      video.style.maxWidth = 'min(400px, 100%)';
+      video.style.maxHeight = '360px';
+      video.style.borderRadius = '10px';
+      a.replaceWith(video);
+    }
+  }
+
   return body;
 }
 

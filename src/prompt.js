@@ -2,6 +2,7 @@
 import { buildAgentContextBlock } from './agents/registry.js'
 import { CODING_BLOCK, DIAGNOSE_BLOCK, shouldInjectCoding, shouldInjectDiagnose } from './prompt-blocks/coding-discipline.js'
 import { SOUL_BLOCK, CONSTRAINTS_BLOCK, shouldInjectSoul, shouldInjectConstraints } from './prompt-blocks/soul-discipline.js'
+import { getEngineeringDisciplineBlock, getRefactorDisciplineBlock, getProductionDisciplineBlock, shouldInjectRefactor, shouldInjectProduction } from './prompt-blocks/engineering-discipline.js'
 import { formatUserProfileForPrompt } from './profile/format.js'
 import { getAppVersion } from './version.js'
 
@@ -590,8 +591,9 @@ Always use registered components — inline-template and inline-script are not s
   // 三信号源：消息文本 / 当前 task 文本 / 最近动作模式（write_file+exec 组合）。
   // TICK 自主干活轮靠后两个信号触发，用户一字未发段也在——这是「内化」与「skill 读取」的区别。
   const disciplineSignals = { userMessage, taskText: currentTaskText, recentActionsText: recentActionsSummary }
-  if (shouldInjectSoul(disciplineSignals)) {
-    console.log('[SOUL] SOUL_BLOCK 已注入')
+  // SOUL_BLOCK 始终注入（身份锚定 + 执行规则，不再靠关键词门控）
+  // 这是让白龙马"听话"的关键——身份规则不在，行为就退化
+  if (SOUL_BLOCK) {
     prompt += `\n\n${SOUL_BLOCK}`
     if (shouldInjectConstraints(disciplineSignals)) {
       prompt += `\n\n${CONSTRAINTS_BLOCK}`
@@ -602,6 +604,22 @@ Always use registered components — inline-template and inline-script are not s
   }
   if (shouldInjectDiagnose(disciplineSignals)) {
     prompt += `\n\n${DIAGNOSE_BLOCK}`
+  }
+
+  // Engineering Discipline — 始终注入浓缩工程规范（Clean Code + 软件设计哲学 + 程序员修炼之道）
+  const engBlock = getEngineeringDisciplineBlock()
+  if (engBlock) {
+    prompt += `\n\n${engBlock}`
+  }
+  // 修改已有代码时注入重构+遗留代码规范
+  if (shouldInjectRefactor(disciplineSignals)) {
+    const refBlock = getRefactorDisciplineBlock()
+    if (refBlock) prompt += `\n\n${refBlock}`
+  }
+  // 涉及生产/部署时注入发布规范
+  if (shouldInjectProduction(disciplineSignals)) {
+    const prodBlock = getProductionDisciplineBlock()
+    if (prodBlock) prompt += `\n\n${prodBlock}`
   }
 
   // WeatherCard Rules —— 注意这是 ACUI 主段下的子段，注入到 ui_show Rules 之后位置

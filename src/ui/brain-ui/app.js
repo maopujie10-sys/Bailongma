@@ -1517,9 +1517,201 @@ function handle({ type, data = {} }) {
       playJarvisStartupSound();
       setTimeout(() => playTTSReply("系统启动中，正在运行自检"), 1500);
       break;
+    case "usage": {
+      // Token / 成本统计更新
+      updateCostStats(data);
+      break;
+    }
+    case "tool_approval_required": {
+      showToolApproval(data);
+      break;
+    }
+    case "list_dir": {
+      updateFileTree(data);
+      break;
+    }
     default:
       break;
   }
+}
+
+// ── Token / 成本统计 ──────────────────────────────────────────────────
+function updateCostStats(data) {
+  const container = document.getElementById('cost-stats');
+  if (!container) return;
+  container.style.display = '';
+
+  const tokensEl = document.getElementById('cost-tokens');
+  const cacheEl = document.getElementById('cost-cache-hit');
+  const roundEl = document.getElementById('cost-round');
+  const todayEl = document.getElementById('cost-today');
+
+  const totalTokens = Number(data.total_tokens) || 0;
+  const cacheHit = Number(data.cache_hit_tokens) || 0;
+  const cacheRate = totalTokens > 0 ? Math.round((cacheHit / totalTokens) * 100) : 0;
+  const costEstimate = Number(data.cost_estimate) || 0;
+
+  if (tokensEl) tokensEl.textContent = totalTokens.toLocaleString();
+  if (cacheEl) cacheEl.textContent = cacheRate + '%';
+  if (roundEl) roundEl.textContent = '¥' + costEstimate.toFixed(4);
+
+  // 今日累计：存 localStorage，每天重置
+  const todayKey = 'bailongma_cost_today';
+  const dateKey = 'bailongma_cost_date';
+  const today = new Date().toISOString().slice(0, 10);
+  let todayTotal = 0;
+  try {
+    const savedDate = localStorage.getItem(dateKey);
+    const savedTotal = localStorage.getItem(todayKey);
+    if (savedDate === today && savedTotal) {
+      todayTotal = Number(savedTotal) || 0;
+    } else {
+      localStorage.setItem(dateKey, today);
+      localStorage.setItem(todayKey, '0');
+    }
+    todayTotal += costEstimate;
+    localStorage.setItem(todayKey, String(todayTotal));
+  } catch {}
+  if (todayEl) todayEl.textContent = '¥' + todayTotal.toFixed(2);
+}
+
+// ── 工具审批弹窗 ──────────────────────────────────────────────────────
+function showToolApproval(data) {
+  const mountFn = window.__acuiMount;
+  const unmountFn = window.__acuiUnmount;
+  if (!mountFn) return;
+
+  const cardId = 'tool-approval-' + (data.request_id || Date.now());
+  mountFn({
+    id: cardId,
+    component: 'ToolApprovalCard',
+    props: {
+      tool_name: data.tool_name || '未知工具',
+      parameters: data.parameters || {},
+      risk_level: data.risk_level || 'low',
+      request_id: data.request_id || '',
+      timeout: 30
+    },
+    hint: { placement: 'center', modal: true, size: 'md' }
+  });
+
+  // 通过捕获阶段监听审批结果（在 renderer 的冒泡阶段监听器之前触发）
+  let handled = false;
+  function onAction(e) {
+    if (handled) return;
+    // 事件从 acui-tool-approval-card 元素冒泡上来
+    const targetId = e.target?.id;
+    if (targetId !== cardId) return;
+    handled = true;
+    document.removeEventListener('acui:action', onAction, true);
+
+    const detail = e.detail || {};
+    const action = detail.action;
+    const payload = detail.payload || {};
+    if (unmountFn) unmountFn(cardId, 'user');
+
+    (async () => {
+      try {
+        await fetch(API + '/approval-response', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            request_id: data.request_id,
+            action: action,
+            ...payload
+          })
+        });
+      } catch (err) {
+        console.warn('[approval] response failed:', err);
+      }
+    })();
+  }
+
+  // 捕获阶段监听（第三个参数 true），优先于 renderer 的冒泡监听器
+  document.addEventListener('acui:action', onAction, true);
+}
+
+// ── 文件树 ────────────────────────────────────────────────────────────
+function updateFileTree(data) {
+  const container = document.getElementById('file-tree');
+  if (!container) return;
+
+  const files = Array.isArray(data.files) ? data.files : (Array.isArray(data) ? data : []);
+  if (!files.length) {
+    container.innerHTML = '<div class="file-tree-empty">暂无文件</div>';
+    return;
+  }
+
+  let html = '<ul class="file-tree-list">';
+  for (const entry of files) {
+    const name = typeof entry === 'string' ? entry : (entry.name || entry.path || '');
+    const isDir = typeof entry === 'object' ? (entry.type === 'directory' || entry.is_dir) : name.endsWith('/');
+    const displayName = isDir ? name.replace(/\/$/, '') : name;
+    const icon = isDir ? '📁' : fileIcon(displayName);
+    const cls = isDir ? 'file-tree-dir' : 'file-tree-file';
+    const fullPath = typeof entry === 'object' ? (entry.path || name) : name;
+
+    html += '<li class="' + cls + '" data-path="' + escapeHtml(fullPath) + '"';
+    if (isDir) html += ' data-dir="true"';
+    html += '>';
+    html += '<span class="file-icon">' + icon + '</span>';
+    html += '<span class="file-name">' + escapeHtml(displayName) + '</span>';
+    html += '</li>';
+  }
+  html += '</ul>';
+  container.innerHTML = html;
+
+  // 目录点击：请求展开
+  container.querySelectorAll('.file-tree-dir').forEach(el => {
+    el.addEventListener('click', () => {
+      const path = el.dataset.path;
+      fetch(API + '/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'list_dir ' + path + '/' })
+      }).catch(() => {});
+    });
+  });
+
+  // 文件点击：预览内容
+  container.querySelectorAll('.file-tree-file').forEach(el => {
+    el.addEventListener('click', () => {
+      const path = el.dataset.path;
+      // 通过 chat 发送 read_file 命令来触发预览
+      fetch(API + '/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'read_file ' + path })
+      }).catch(() => {});
+    });
+  });
+}
+
+function fileIcon(filename) {
+  const ext = String(filename).split('.').pop().toLowerCase();
+  const iconMap = {
+    js: '🟨', ts: '🟦', jsx: '🟪', tsx: '🟦',
+    py: '🐍', java: '☕', go: '🔵', rs: '🦀',
+    html: '🟧', css: '🟦', scss: '🟪',
+    json: '📋', yml: '📋', yaml: '📋', toml: '📋',
+    md: '📝', txt: '📄', csv: '📊',
+    png: '🖼', jpg: '🖼', jpeg: '🖼', gif: '🖼', svg: '🖼',
+    mp3: '🎵', wav: '🎵', ogg: '🎵',
+    mp4: '🎬', webm: '🎬', mov: '🎬',
+    zip: '📦', tar: '📦', gz: '📦',
+    sh: '⚡', bat: '⚡', ps1: '⚡',
+    sql: '🗄', db: '🗄',
+    lock: '🔒', gitignore: '🙈',
+  };
+  return iconMap[ext] || '📄';
+}
+
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 // ── Jarvis-style startup self-check sound ────────────────────────────────────
@@ -2167,6 +2359,43 @@ chat.unlockAudioOnFirstGesture();
 bootstrapACUI();
 initPanelCollapse();
 initWechatPopup();
+
+// ── 面板标签切换（panel-l1 主面板 / 文件树） ────────────────────────────────
+(function initPanelTabs() {
+  const tabs = document.querySelectorAll('#panel-tabs-l1 .panel-tab');
+  const mainElements = document.querySelectorAll('#panel-l1 .stream-meta, #panel-l1 .stream, #panel-l1 .panel-actions, #panel-l1 .legend, #panel-l1 .ai-activity');
+  const fileTreeContainer = document.getElementById('file-tree-container');
+
+  if (!tabs.length) return;
+
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      const target = tab.dataset.tab;
+      if (target === 'files') {
+        mainElements.forEach(el => el.style.display = 'none');
+        if (fileTreeContainer) fileTreeContainer.style.display = '';
+      } else {
+        mainElements.forEach(el => el.style.display = '');
+        if (fileTreeContainer) fileTreeContainer.style.display = 'none';
+      }
+    });
+  });
+
+  // 刷新按钮
+  const refreshBtn = document.getElementById('file-tree-refresh');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => {
+      fetch(API + '/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'list_dir sandbox/' })
+      }).catch(() => {});
+    });
+  }
+})();
 
 // ── TTS settings panel init ───────────────────────────────────────────────────
 function initTTSSettings() {

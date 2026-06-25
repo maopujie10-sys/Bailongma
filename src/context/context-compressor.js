@@ -13,6 +13,8 @@
  */
 
 import { callLLM } from '../llm.js'
+import { config, DEEPSEEK_PROVIDER, PROVIDER_CONFIG } from '../config.js'
+import OpenAI from 'openai'
 
 const COMPRESSOR_SYSTEM_PROMPT = `You are a conversation summarizer. Your job is to compress the middle portion of a conversation into a concise summary.
 
@@ -48,7 +50,35 @@ function estimateTokens(text) {
 export async function compressConversation({ messages = [], maxTokens = DEFAULT_MAX_TOKENS, customCallLLM = null } = {}) {
   if (!messages.length) return []
 
-  const llm = customCallLLM || callLLM
+  // 可选的便宜模型 callLLM：当 customCallLLM 为 null 时尝试用 deepseek-chat 压缩
+  let compressedLlm
+  if (!customCallLLM) {
+    try {
+      const providerCfg = PROVIDER_CONFIG[DEEPSEEK_PROVIDER]
+      if (providerCfg && config.apiKey) {
+        const cheapClient = new OpenAI({
+          apiKey: config.apiKey,
+          baseURL: providerCfg.baseURL || 'https://api.deepseek.com',
+        })
+        compressedLlm = async (opts) => {
+          const completion = await cheapClient.chat.completions.create({
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: opts.systemPrompt || '' },
+              { role: 'user', content: opts.message || '' },
+            ],
+            temperature: opts.temperature ?? 0.2,
+            max_tokens: opts.maxTokens || 1024,
+          })
+          return { content: completion.choices?.[0]?.message?.content || '' }
+        }
+        console.log('[compressor] 使用 deepseek-chat 进行上下文压缩')
+      }
+    } catch (err) {
+      console.warn('[compressor] 创建便宜模型失败，使用主模型:', err.message)
+    }
+  }
+  const llm = compressedLlm || customCallLLM || callLLM
   const totalTokens = estimateTokens(messages.map(m => m.content || '').join(' '))
 
   // 没超预算，不需要压缩

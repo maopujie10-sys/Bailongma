@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, switchModel } from './config.js'
-import { executeTool } from './capabilities/executor.js'
+import { executeCapability } from './capabilities/executor.js'
 import { getToolSchemas } from './capabilities/schemas.js'
 import { recordUsage, shouldThrottle } from './quota.js'
 import { insertActionLog } from './db.js'
@@ -9,6 +9,7 @@ import { stripMarkers } from './runtime/markers.js'
 import { beginTurn } from './runtime/turn-trace.js'
 import { createMergedAbortSignal } from './capabilities/abort-utils.js'
 import { filterStrictEvaluationTools, isToolForbiddenInStrictEvaluation, makeStrictForbiddenToolResult } from './runtime/strict-evaluation.js'
+import { emitEvent } from './events.js'
 
 // 单轮流式调用的「空闲超时」：从开始到第一个 token、以及每两个 token 之间，
 // 若超过这个时长没有任何增量到达，判定为 provider 连接卡死（连接开着却不吐字节）。
@@ -279,6 +280,16 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
       ? ` (prompt cache: ${cacheHitTokens}/${promptTotal} = ${(cacheHitTokens/promptTotal*100).toFixed(1)}%)`
       : ''
     console.log(`[配额] 本轮 tokens: ${usageTokens}${cacheStr}`)
+    try {
+      emitEvent('usage', {
+        total_tokens: usageTokens,
+        prompt_tokens: promptTotal,
+        cache_hit_tokens: cacheHitTokens,
+        model: config.model,
+        cost_estimate: usageTokens * 0.000002,
+        timestamp: Date.now(),
+      })
+    } catch (_) { /* emitEvent 失败不影响主流程 */ }
   }
 
   return {
@@ -1103,7 +1114,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
             ackSent = true
             try {
               const ackArgs = { target_id: toolContext.currentTargetId, content: slowAckText(tc.name, normalizedArgs) }
-              const ackResult = await executeTool('send_message', ackArgs, { ...toolContext, signal, source: 'ack' })
+              const ackResult = await executeCapability('send_message', ackArgs, { ...toolContext, signal, source: 'ack' })
               // 关键：ack 不置 delivered。ack 是"承诺稍后汇报"，不是汇报本身——
               // 把它当投递会让文末兜底（!delivered 守卫）跳过，模型生成的最终汇报被静默丢弃。
               // 实测（2026-06-10 排障四连静默）：r19 已生成完整收尾汇报，因 ack 置了 delivered
@@ -1111,13 +1122,13 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
               // ack 也要回调 onToolCall：语音自动 TTS 只挂在 onToolCall 里（index.js），ack 走直投通道
               // 会绕过它——结果 ack 只在 UI 显示成文字、却不被念出来（语音轮用户听不到"我查一下…"）。
               // 镜像协议兜底的做法（见文末 __fallback 分支）：补一次带 __ack 标记的 onToolCall 触发 TTS，
-              // 标记供遥测分类，executeTool 收到的是干净的 ackArgs。
+              // 标记供遥测分类，executeCapability 收到的是干净的 ackArgs。
               if (onToolCall) onToolCall('send_message', { ...ackArgs, __ack: true }, ackResult)
             } catch { /* ack 投递失败不影响主流程 */ }
           }
           // 真正开始执行前通知 UI —— 让用户知道当前停留在哪一步的工具上
           onToolExecute?.(tc.name, normalizedArgs)
-          result = await executeTool(tc.name, normalizedArgs, { ...toolContext, signal })
+          result = await executeCapability(tc.name, normalizedArgs, { ...toolContext, signal })
           recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
           // 单一权威：一次未被 silent/closer 拦截、未熔断的 send_message 真正执行过 →
           //   用户确实收到了回复。这是 delivered 唯一被置 true 的地方（除文末协议兜底外）。
@@ -1167,7 +1178,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           detail: buildToolLogDetail(normalizedArgs, result),
         })
       }
-      console.log(`[工具结果] ${tc.name}: ${result.slice(0, 100)}`)
+      console.log(`[工具结果] ${tc.name}: ${String(result||"").slice(0, 100)}`)
       if (onToolCall) onToolCall(tc.name, normalizedArgs, result)
       lastToolResult = { name: tc.name, args: normalizedArgs, result }
       return { id: tc.id, name: tc.name, args: normalizedArgs, result, stopReason }
@@ -1236,7 +1247,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       // XML 工具调用：assistant 消息为纯文本，工具结果作为 user 消息注入
       if (content) messages.push({ role: 'assistant', content })
       const resultSummary = toolResults.map(tr =>
-        `[Tool result] ${tr.name}: ${tr.result.slice(0, 300)}`
+        `[Tool result] ${tr.name}: ${String(tr.result||"").slice(0, 300)}`
       ).join('\n')
       // 同主路径：以 sentMessage（本轮最后一个动作是否是 send_message）为收尾依据，
       // 而不是只看本轮有没有出现过 send_message。
@@ -1316,14 +1327,14 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   // ── 单一权威的协议兜底 ──────────────────────────────────────────────
   // 模型产出了可投递的回复文本，但整轮从未真正执行过 send_message（delivered=false），
   // 且本轮要求回复用户（mustReply 且非 silent 信号）。此时由 runtime 代为投递——
-  // 关键：走**真正的 send_message 执行器**（executeTool），从而复用 executor 里的
+  // 关键：走**真正的 send_message 执行器**（executeCapability），从而复用 executor 里的
   //   findRecentJarvisDuplicate 去重 / open_question 检测 / dispatchSocialMessage 社交派发，
   //   不再像旧的 index.js fallback 那样手工重做副作用却漏掉这些安全检查。
   // 硬不变量：
   //   #1 silent 轮绝不投递 —— !silentSignal 守卫。
   //   #4 不双发 —— 仅 !delivered 时触发；一旦投出立刻 delivered=true，index.js 不会再补。
   //   #5 投递前剥离 <think>/[RECALL:] 等协议标记。
-  //   #8 source:'fallback' 由 executeTool→tool-audit 自动写入 action_log，区分协议兜底与显式调用。
+  //   #8 source:'fallback' 由 executeCapability→tool-audit 自动写入 action_log，区分协议兜底与显式调用。
   //
   // 中断恢复（去掉了旧的 !aborted 守卫）：watchdog 超时/高优先级抢占会把本 turn 的 signal abort。
   // 但若模型在被掐断前**已经生成好了一条可投递的答案**（典型：社交渠道第一轮出了纯文本、第二轮包
@@ -1361,10 +1372,10 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       try {
         const fbArgs = { target_id: fallbackTarget, content: fallbackContent }
         // source:'fallback' 让 tool-audit 把这条 action_log 标记为协议兜底（不变量 #8）。
-        const fbResult = await executeTool('send_message', fbArgs, { ...toolContext, signal: fbSignal, source: 'fallback' })
+        const fbResult = await executeCapability('send_message', fbArgs, { ...toolContext, signal: fbSignal, source: 'fallback' })
         // 兜底也是"真正执行过的 send_message"：置 delivered，并触发与正常路径同样的
         //   onToolCall 回调（语音渠道自动 TTS、UI tool_call 事件、toolCallLog 登记都在那里）。
-        //   __fallback 标记仅给 onToolCall 用于遥测分类；executeTool 收到的是干净的 fbArgs。
+        //   __fallback 标记仅给 onToolCall 用于遥测分类；executeCapability 收到的是干净的 fbArgs。
         delivered = true
         lastToolResult = { name: 'send_message', args: fbArgs, result: fbResult }
         if (onToolCall) onToolCall('send_message', { ...fbArgs, __fallback: true }, fbResult)
