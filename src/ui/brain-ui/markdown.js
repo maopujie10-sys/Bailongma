@@ -147,7 +147,11 @@ export function renderMarkdown(text) {
       parts.push(renderDiffBlock(codeLines));
     } else {
       const langClass = codeFence ? ` class="language-${escapeAttr(codeFence)}"` : "";
-      parts.push(`<pre><code${langClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+      const langLabel = codeFence ? `<span class="code-lang">${escapeHtml(codeFence)}</span>` : '';
+      const lineCount = codeLines.length;
+      const collapsed = lineCount > 20;
+      const wrapClass = collapsed ? ' code-block-collapsed' : '';
+      parts.push(`<div class="code-block-wrapper${wrapClass}">${langLabel}<pre><code${langClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>${collapsed ? `<button class="code-expand-btn" onclick="this.parentElement.classList.toggle('code-block-collapsed');this.textContent=this.parentElement.classList.contains('code-block-collapsed')?'展开 '+this.dataset.lines+' 行':'收起';return false" data-lines="${lineCount}">展开 ${lineCount} 行</button>` : ''}</div>`);
     }
     codeFence = null;
     codeLines = [];
@@ -229,6 +233,23 @@ export function createMarkdownBody(text) {
   const body = document.createElement("div");
   body.className = "msg-body";
   body.innerHTML = renderMarkdown(text);
+
+  // 代码块复制按钮
+  body.querySelectorAll('pre').forEach(pre => {
+    const btn = document.createElement('button');
+    btn.className = 'copy-code-btn';
+    btn.textContent = '复制';
+    btn.onclick = () => {
+      const code = pre.querySelector('code');
+      const text = code ? code.textContent : pre.textContent;
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = '已复制';
+        setTimeout(() => btn.textContent = '复制', 1500);
+      }).catch(() => {});
+    };
+    pre.style.position = 'relative';
+    pre.appendChild(btn);
+  });
 
   // 视频链接 → 内联 video 元素（/media/chat/*.mp4/.webm/.mov 等）
   const links = body.querySelectorAll('a[href]');

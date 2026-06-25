@@ -200,12 +200,35 @@ export function initChat({
     const { alert = role === "jarvis", pending = true, label } = options;
     const defaultLabel = role === "user" ? "You" : role === "jarvis" ? getAgentName() : "Peer";
     const labelText = label || defaultLabel;
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+
     const div = document.createElement("div");
     div.className = `msg msg-${role}`;
+
+    // 头部：标签 + 时间 + 复制按钮
+    const header = document.createElement("div");
+    header.className = "msg-header";
     const labelSpan = document.createElement("span");
     labelSpan.className = "msg-label";
     labelSpan.textContent = labelText;
-    div.appendChild(labelSpan);
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "msg-time";
+    timeSpan.textContent = timeStr;
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "msg-copy-btn";
+    copyBtn.title = "复制消息";
+    copyBtn.textContent = "复制";
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = "已复制";
+        setTimeout(() => copyBtn.textContent = "复制", 1500);
+      }).catch(() => {});
+    };
+    header.appendChild(labelSpan);
+    header.appendChild(timeSpan);
+    header.appendChild(copyBtn);
+    div.appendChild(header);
     div.appendChild(createMarkdownBody(text));
     chatMessages.appendChild(div);
 

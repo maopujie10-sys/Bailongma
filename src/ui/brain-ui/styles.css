@@ -4302,6 +4302,83 @@ body.drag-over #input-row { border-color: var(--warm, #f0a060); box-shadow: 0 0 
 }
 .msg-body .msg-video + br { display: none; }
 
+/* ── 消息头部（标签+时间+复制） ──────────────────────────────────── */
+.msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  opacity: 0.7;
+  font-size: 11px;
+}
+.msg:hover .msg-header { opacity: 1; }
+.msg-time { color: var(--ink); opacity: 0.5; font-variant-numeric: tabular-nums; }
+.msg-copy-btn {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg:hover .msg-copy-btn { opacity: 0.7; }
+.msg-copy-btn:hover { opacity: 1 !important; background: var(--line); }
+
+/* ── 代码块复制按钮 ────────────────────────────────────────────────── */
+.copy-code-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 10px;
+  font-size: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+pre:hover .copy-code-btn, .code-block-wrapper:hover .copy-code-btn { opacity: 0.8; }
+.copy-code-btn:hover { opacity: 1 !important; }
+
+/* ── 代码块语言标签 ────────────────────────────────────────────────── */
+.code-lang {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  font-size: 10px;
+  color: var(--ink);
+  opacity: 0.45;
+  z-index: 2;
+  pointer-events: none;
+}
+.code-block-wrapper {
+  position: relative;
+  margin: 6px 0;
+}
+
+/* ── 代码块折叠 ────────────────────────────────────────────────────── */
+.code-block-collapsed pre { max-height: 280px; overflow: hidden; }
+.code-expand-btn {
+  display: block;
+  width: 100%;
+  padding: 6px;
+  font-size: 11px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  cursor: pointer;
+  opacity: 0.7;
+}
+.code-expand-btn:hover { opacity: 1; }
+
 /* ── Token / 成本统计（panel-l2） ───────────────────────────────────── */
 .cost-stats {
   display: flex;

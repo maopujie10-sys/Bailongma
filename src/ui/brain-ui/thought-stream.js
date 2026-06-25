@@ -628,7 +628,7 @@ export class ThoughtStream {
 
     const zh = TOOL_ZH[name] || name;
     const icon = TOOL_ICON[name] || "🔧";
-    const resultStr = result == null ? "" : String(result);
+    const resultStr = result == null ? "" : (typeof result === 'object' ? JSON.stringify(result, null, 2) : String(result));
     const failure = ok === false || (ok !== true && isFailureResult(resultStr));
     this.hadToolCall = true;
     this.toolFailed = this.toolFailed || failure;
