@@ -379,16 +379,18 @@ export function initChat({
     }
 
     if (isCode(file) && file.size <= CODE_MAX) {
-      // 文本/代码文件 → 上传后端，静默存储到第二大脑
+      // 文本/代码文件 → 上传并自动消化（摘存记忆）
       const form = new FormData(); form.append('file', file)
       const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 300000)
-      const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form, signal: ctl.signal }).finally(() => clearTimeout(to))
-      if (!resp.ok) throw new Error('上传失败')
+      const resp = await fetch(`${apiBase}/ingest`, { method: 'POST', body: form, signal: ctl.signal }).finally(() => clearTimeout(to))
+      if (!resp.ok) throw new Error('消化失败')
       const result = await resp.json()
-      const url = result.files?.[0]?.url
-      if (!url) throw new Error('上传失败')
-      // 静默投喂到记忆系统，不展示内容
-      await send({ text: `/记忆 存储文件 ${file.name} ${url}` })
+      const info = result.files?.[0]
+      if (info?.digested) {
+        addMsg('jarvis', `已消化: ${file.name} (${(file.size/1024).toFixed(1)}KB) → 记忆库`, { alert: false, pending: false })
+      } else {
+        addMsg('jarvis', `已存储: ${file.name}`, { alert: false, pending: false })
+      }
       return
     }
 

@@ -521,6 +521,66 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       return
     }
 
+    // POST /ingest — 投喂文件自动消化：上传 + 摘要 + 存记忆
+    if (req.method === 'POST' && url.pathname === '/ingest') {
+      try {
+        const ct = req.headers['content-type'] || ''
+        const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+        if (contentLength > 100 * 1024 * 1024) {
+          jsonResponse(res, 413, { error: `文件过大，上限 100MB` }); return
+        }
+        if (!ct.startsWith('multipart/form-data')) {
+          jsonResponse(res, 400, { error: '需要 multipart/form-data' }); return
+        }
+        const boundary = '--' + ct.split('boundary=')[1]?.trim()
+        if (!boundary || boundary === '--') {
+          jsonResponse(res, 400, { error: '缺少 boundary' }); return
+        }
+        const buf = await readBody(req)
+        const files = parseMultipart(buf, boundary)
+        if (!files.length) { jsonResponse(res, 400, { error: '未收到文件' }); return }
+
+        const results = []
+        for (const file of files) {
+          const hash = crypto.createHash('sha256').update(file.data).digest('hex').slice(0, 16)
+          const ext = path.extname(file.filename || '') || guessExt(file.contentType)
+          const safeName = `${hash}${ext}`
+          fs.mkdirSync(paths.mediaDir, { recursive: true })
+          fs.writeFileSync(path.join(paths.mediaDir, safeName), file.data)
+
+          // 自动生成摘要（用简单规则：前500字）
+          let summary = ''
+          const isText = /text|json|xml|javascript|python|html|css|markdown|yaml/.test(file.contentType)
+            || /\.(txt|md|json|js|ts|py|java|go|rs|c|cpp|h|cs|rb|php|swift|kt|sh|ps1|sql|yaml|yml|toml|xml|css|html|vue|jsx|tsx|cfg|ini|env|conf|log|csv)$/i.test(file.filename || '')
+          if (isText) {
+            const text = file.data.toString('utf8').slice(0, 4000)
+            summary = text.slice(0, 500).replace(/\n/g, ' ').trim()
+            if (text.length > 500) summary += '...'
+            // 写入记忆（SQLite FTS5）
+            try {
+              const db = getDB()
+              db.prepare(`INSERT INTO memories (content, detail, kind, source, created_at) VALUES (?, ?, ?, ?, datetime('now'))`).run(
+                `[投喂] ${file.filename}`, summary, 'procedure', 'ingest'
+              )
+            } catch (e) { console.warn('[ingest] 记忆写入失败:', e.message) }
+          }
+
+          results.push({
+            filename: file.filename,
+            url: `/media/chat/${safeName}`,
+            size: file.data.length,
+            digested: !!summary,
+            summary: summary.slice(0, 200),
+          })
+        }
+        jsonResponse(res, 200, { ok: true, files: results })
+      } catch (e) {
+        console.error('[ingest] 失败:', e.message)
+        jsonResponse(res, 500, { error: `消化失败: ${e.message}` })
+      }
+      return
+    }
+
     // GET /events — SSE real-time event stream (outbound channel for bidirectional communication)
     if (req.method === 'GET' && url.pathname === '/events') {
       res.writeHead(200, {
