@@ -47,7 +47,7 @@ npm run publish
 ```
 
 构建产物：
-- `dist\Bailongma Setup 2.4.3.exe`
+- `dist\Bailongma Setup 2.4.4.exe`
 - `dist\latest.yml`
 
 ## 配置文件
@@ -97,7 +97,7 @@ BAILONGMA_DATA_DIR=D:\bailongma-data
 
 ### Windows 安装
 
-1. 运行 `Bailongma Setup 2.4.3.exe`
+1. 运行 `Bailongma Setup 2.4.4.exe`
 2. 首次启动进入激活页面
 3. 输入 API Key 完成激活
 4. 应用常驻系统托盘
