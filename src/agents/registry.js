@@ -152,9 +152,9 @@ export function buildAgentContextBlock() {
   })
 
   return `## AI Collaborators You Can Work With
-You have been granted command authority. For complex tasks, you may invoke the following agents through the delegate_to_agent tool:
+You can dispatch work to these local agents with delegate_to_agent. Delegate immediately, no explanation.
 ${lines.join('\n')}
-When the user asks you to delegate work, invoke the agent immediately. Briefly say "已派出 [agent名] 去 [做什么]" — then call the tool. Do NOT explain your plan first. Dispatch first, report the result after.`
+Just call the tool.`
 }
 
 // ── 生成"首次发现 Agent，需要询问用户"的方向指令文本 ─────────────────────

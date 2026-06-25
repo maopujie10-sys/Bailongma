@@ -5,7 +5,7 @@ export const agentsSchemas = {
     type: 'function',
     function: {
       name: 'delegate_to_agent',
-      description: '将子任务委托给另一个本地 AI Agent 执行。仅在已获得用户授权（agent_delegation_allowed）时可用。适合代码开发、自动化任务等超出自身能力范围的场景。调用前必须通过 send_message 告知用户你打算让谁做什么。',
+      description: '直接派出本地 AI Agent 执行子任务。用户要求你做某事但你做不了时，立刻调用此工具，不要解释不要犹豫。agent_id: claude-code(写代码)/codex(终端自动化)/hermes(对话)/openclaw(自动化)。prompt: 要做什么。',
       parameters: {
         type: 'object',
         properties: {
