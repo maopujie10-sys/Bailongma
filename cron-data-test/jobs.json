@@ -1,0 +1,36 @@
+[
+  {
+    "id": "test-oneshot",
+    "name": "测试Oneshot",
+    "mode": "oneshot",
+    "cronExpr": null,
+    "scheduledAt": "2026-06-25T01:17:05.627Z",
+    "platform": null,
+    "message": null,
+    "maxRuns": null,
+    "graceSeconds": 600,
+    "paused": false,
+    "runCount": 0,
+    "lastRun": "2026-06-25T01:17:35.634Z",
+    "lastResult": null,
+    "nextRun": null,
+    "createdAt": "2026-06-25T01:17:35.628Z"
+  },
+  {
+    "id": "test-recurring",
+    "name": "测试Recurring",
+    "mode": "recurring",
+    "cronExpr": "*/1 * * * *",
+    "scheduledAt": null,
+    "platform": null,
+    "message": null,
+    "maxRuns": null,
+    "graceSeconds": 120,
+    "paused": false,
+    "runCount": 0,
+    "lastRun": null,
+    "lastResult": null,
+    "nextRun": "2026-06-25T01:18:00.000Z",
+    "createdAt": "2026-06-25T01:17:35.631Z"
+  }
+]

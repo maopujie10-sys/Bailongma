@@ -1,0 +1,11 @@
+[uncaughtException] ReferenceError: IS_WIN is not defined
+    at applyGpuPreference (D:\Projects\AI项目\BaiLongma-main\dist-build\win-unpacked\resources\app.asar\electron\main.cjs:90:3)
+    at Object.<anonymous> (D:\Projects\AI项目\BaiLongma-main\dist-build\win-unpacked\resources\app.asar\electron\main.cjs:111:1)
+    at Module._compile (node:internal/modules/cjs/loader:1484:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1564:10)
+    at Module.load (node:internal/modules/cjs/loader:1295:32)
+    at Module._load (node:internal/modules/cjs/loader:1111:12)
+    at c._load (node:electron/js2c/node_init:2:16955)
+    at node:electron/js2c/browser_init:2:129756
+    at node:electron/js2c/browser_init:2:129965
+    at node:electron/js2c/browser_init:2:129969

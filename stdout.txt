@@ -1,0 +1,2 @@
+
+[main] Bailongma 2.4.2 starting, logs → D:\Projects\AI项目\Bailongma-data\logs\bailongma.log

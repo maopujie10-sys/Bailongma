@@ -154,7 +154,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "xiaoyuanda666-ship-it",
+        "owner": "maopujie10-sys",
         "repo": "BaiLongma",
         "releaseType": "release"
       }

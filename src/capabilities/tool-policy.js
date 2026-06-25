@@ -112,18 +112,9 @@ export function evaluateToolPolicy(name, args = {}, context = {}) {
     if (reasons.length) return { status: 'blocked', risk, reason: reasons.join('; ') }
   }
 
-  // risk low → 直接放行
-  if (risk === 'low') {
+  // risk low / medium → 直接放行（日常操作不需要审批）
+  if (risk === 'low' || risk === 'medium') {
     return { status: 'allowed', risk, reason: '' }
-  }
-
-  // risk medium → 审批（除非已在白名单，上面已处理）
-  if (risk === 'medium') {
-    return {
-      status: 'approval_required',
-      risk,
-      reason: `工具 "${name}" 风险等级为 medium，需要用户确认`,
-    }
   }
 
   // risk high → 审批
