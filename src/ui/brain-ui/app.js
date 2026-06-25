@@ -2389,14 +2389,31 @@ initWechatPopup();
     });
   });
 
-  // 刷新按钮 — 直接调 /sandbox-files API
+  // 刷新按钮 — 读取 path 输入框中的路径
   const refreshBtn = document.getElementById('file-tree-refresh');
+  const pathInput = document.getElementById('file-tree-path');
   if (refreshBtn) {
     refreshBtn.addEventListener('click', async () => {
+      const p = pathInput ? pathInput.value.replace(/\/+$/, '') : '';
       try {
-        const resp = await fetch(API + '/sandbox-files?path=');
+        const resp = await fetch(API + '/sandbox-files?path=' + encodeURIComponent(p));
         if (resp.ok) updateFileTree(await resp.json());
       } catch {}
+    });
+  }
+  // 路径输入框回车
+  if (pathInput) {
+    pathInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { refreshBtn?.click(); }
+    });
+  }
+  // 关闭按钮 — 切回主面板
+  const closeBtn = document.getElementById('file-tree-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      mainElements.forEach(el => el.style.display = '');
+      if (fileTreeContainer) fileTreeContainer.style.display = 'none';
+      tabs.forEach(t => { t.classList.remove('active'); if (t.dataset.tab === 'main') t.classList.add('active'); });
     });
   }
 })();

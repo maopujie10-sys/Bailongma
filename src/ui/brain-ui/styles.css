@@ -4380,6 +4380,35 @@ pre:hover .copy-code-btn, .code-block-wrapper:hover .copy-code-btn { opacity: 0.
 }
 .code-expand-btn:hover { opacity: 1; }
 
+/* ── 文件树增强 ────────────────────────────────────────────────────── */
+.file-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.file-tree-path {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-deep);
+  color: var(--ink);
+  font-family: "Consolas", "Courier New", monospace;
+}
+.file-tree-close {
+  padding: 2px 8px;
+  font-size: 13px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+.file-tree-close:hover { background: rgba(255,80,80,0.2); }
+
 /* ── Token / 成本统计（panel-l2） ───────────────────────────────────── */
 .cost-stats {
   display: flex;

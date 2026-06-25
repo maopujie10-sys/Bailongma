@@ -358,7 +358,8 @@ export function initChat({
       // 大图片 → 上传后端；小图片 → base64 data URL 内联
       if (file.size > 2 * 1024 * 1024) {
         const form = new FormData(); form.append('file', file)
-        const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form })
+        const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 300000)
+        const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form, signal: ctl.signal }).finally(() => clearTimeout(to))
         if (!resp.ok) throw new Error('上传失败')
         const result = await resp.json()
         const url = result.files?.[0]?.url
@@ -394,7 +395,9 @@ export function initChat({
     // 视频/其他文件 → 上传后端 → 获取 URL → 插入输入框
     const form = new FormData()
     form.append('file', file)
-    const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 300000) // 5分钟超时
+    const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form, signal: controller.signal }).finally(() => clearTimeout(timeout))
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}))
       throw new Error(err.error || `上传失败 HTTP ${resp.status}`)

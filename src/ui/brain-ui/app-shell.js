@@ -54,8 +54,9 @@ const createPrimaryPanel = () => `
 
   <div class="file-tree-container" id="file-tree-container" style="display:none;">
     <div class="file-tree-header">
-      <span class="file-tree-title">sandbox/</span>
+      <input class="file-tree-path" id="file-tree-path" value="sandbox/" placeholder="输入路径..." title="输入目录路径后回车">
       <button class="file-tree-refresh" id="file-tree-refresh" type="button" title="刷新">🔄</button>
+      <button class="file-tree-close" id="file-tree-close" type="button" title="关闭文件树">✕</button>
     </div>
     <div class="file-tree" id="file-tree">
       <div class="file-tree-empty">暂无文件数据</div>
