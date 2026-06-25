@@ -1581,15 +1581,15 @@ function showToolApproval(data) {
   const unmountFn = window.__acuiUnmount;
   if (!mountFn) return;
 
-  const cardId = 'tool-approval-' + (data.request_id || Date.now());
+  const cardId = 'tool-approval-' + (data.approvalId || Date.now());
   mountFn({
     id: cardId,
     component: 'ToolApprovalCard',
     props: {
-      tool_name: data.tool_name || '未知工具',
-      parameters: data.parameters || {},
-      risk_level: data.risk_level || 'low',
-      request_id: data.request_id || '',
+      tool_name: data.toolName || '未知工具',
+      parameters: data.args || {},
+      risk_level: data.risk || 'low',
+      request_id: data.approvalId || '',
       timeout: 30
     },
     hint: { placement: 'center', modal: true, size: 'md' }
@@ -1616,7 +1616,7 @@ function showToolApproval(data) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            request_id: data.request_id,
+            approvalId: data.approvalId,
             action: action,
             ...payload
           })
