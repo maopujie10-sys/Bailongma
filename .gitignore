@@ -145,3 +145,4 @@ dist
 .pnp.*
 app.asar
 dist-build/
+bailongma-2.*-win-x64/
