@@ -386,7 +386,9 @@ export function initChat({
       if (!resp.ok) throw new Error('消化失败')
       const result = await resp.json()
       const info = result.files?.[0]
-      if (info?.digested) {
+      if (info?.evolved) {
+        addMsg('jarvis', `已消化并触发进化: ${file.name} (${(file.size/1024).toFixed(1)}KB) → 记忆库 + 技能提取`, { alert: false, pending: false })
+      } else if (info?.digested) {
         addMsg('jarvis', `已消化: ${file.name} (${(file.size/1024).toFixed(1)}KB) → 记忆库`, { alert: false, pending: false })
       } else {
         addMsg('jarvis', `已存储: ${file.name}`, { alert: false, pending: false })

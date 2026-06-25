@@ -942,6 +942,48 @@ async function runTurn(input, label, msg = null) {
       return
     }
 
+    // /进化 命令：分析投喂文件 → LLM提取可复用模式 → 自动生成技能
+    if (!isTick && msg && /^\/进化\b/.test(input)) {
+      const meta = msg.meta || {}
+      if (meta.kind === 'ingest_evolution' && meta.file_path) {
+        try {
+          const fs = await import('fs')
+          if (!fs.existsSync(meta.file_path)) { finishTurn(null); return }
+          const content = fs.readFileSync(meta.file_path, 'utf8')
+          const snippet = content.slice(0, 6000)
+          // 让 LLM 分析文件内容，判断是否包含可复用工作流/代码模式
+          const analysis = await callLLM({
+            message: `分析以下文件内容，判断是否包含可复用的工作流、代码模式、配置模板或知识。如果是，提取出来并描述为一个可学习的技能。如果不是（比如纯数据、日志、聊天记录），回复 "NOT_REUSABLE"。
+
+文件名: ${meta.filename}
+内容:
+${snippet}`,
+            temperature: 0.2,
+          })
+          const analysisText = analysis.content || ''
+          if (analysisText.includes('NOT_REUSABLE')) {
+            finishTurn(null) // 不可复用，静默
+            return
+          }
+          // 可复用 → 自动生成技能
+          const desc = `从投喂文件「${meta.filename}」中自动提取的可复用模式：\n\n${analysisText}`
+          const result = await learnSkill(desc, { callLLM, sandboxSkillsDir: null })
+          if (result.ok) {
+            console.log(`[evolution] 新技能: ${result.skillName} ← ${meta.filename}`)
+            finishTurn(`🧬 进化！从 ${meta.filename} 学到新技能「${result.skillName}」`)
+          } else {
+            finishTurn(null)
+          }
+        } catch (e) {
+          console.warn('[evolution] 失败:', e.message)
+          finishTurn(null)
+        }
+      } else {
+        finishTurn(null)
+      }
+      return
+    }
+
 
     // 1. Injector
     const injection = await runInjector({ message: input, state })

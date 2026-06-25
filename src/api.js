@@ -553,7 +553,8 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           const isText = /text|json|xml|javascript|python|html|css|markdown|yaml/.test(file.contentType)
             || /\.(txt|md|json|js|ts|py|java|go|rs|c|cpp|h|cs|rb|php|swift|kt|sh|ps1|sql|yaml|yml|toml|xml|css|html|vue|jsx|tsx|cfg|ini|env|conf|log|csv)$/i.test(file.filename || '')
           if (isText) {
-            const text = file.data.toString('utf8').slice(0, 4000)
+            const fullText = file.data.toString('utf8')
+            const text = fullText.slice(0, 4000)
             summary = text.slice(0, 500).replace(/\n/g, ' ').trim()
             if (text.length > 500) summary += '...'
             // 写入记忆（SQLite FTS5）
@@ -563,6 +564,18 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
                 `[投喂] ${file.filename}`, summary, 'procedure', 'ingest'
               )
             } catch (e) { console.warn('[ingest] 记忆写入失败:', e.message) }
+
+            // 大文件（>2KB）触发自进化：后台分析提取可复用模式
+            if (fullText.length > 2000) {
+              try {
+                pushMessage('ID:000001', `/进化 分析文件 ${file.filename} ${safeName}`, 'ingest', {
+                  file_path: path.join(paths.mediaDir, safeName),
+                  filename: file.filename,
+                  kind: 'ingest_evolution',
+                })
+                console.log(`[ingest] 已触发自进化: ${file.filename} (${fullText.length} 字)`)
+              } catch (e) { console.warn('[ingest] 进化触发失败:', e.message) }
+            }
           }
 
           results.push({
@@ -570,6 +583,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
             url: `/media/chat/${safeName}`,
             size: file.data.length,
             digested: !!summary,
+            evolved: isText && file.data.length > 2000,
             summary: summary.slice(0, 200),
           })
         }
