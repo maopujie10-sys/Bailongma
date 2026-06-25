@@ -26,6 +26,7 @@ import { registerProvider } from './providers/registry.js'
 import { MinimaxProvider } from './providers/minimax.js'
 import { isRunning, setScheduler } from './control.js'
 import { getCustomIntervalMs, consumeTick as consumeTickerTick, getStatus as getTickerStatus } from './ticker.js'
+import path from 'path'
 import { seedSandboxOnce, seedMusicOnce, rescueDataFromInstallDir } from './paths.js'
 import { ensureSkillMemories } from './memory/seed-skills.js'
 import { loadInstalledTools } from './capabilities/marketplace/index.js'
@@ -968,9 +969,52 @@ ${snippet}`,
           // 可复用 → 自动生成技能
           const desc = `从投喂文件「${meta.filename}」中自动提取的可复用模式：\n\n${analysisText}`
           const result = await learnSkill(desc, { callLLM, sandboxSkillsDir: null })
-          if (result.ok) {
-            console.log(`[evolution] 新技能: ${result.skillName} ← ${meta.filename}`)
-            finishTurn(`🧬 进化！从 ${meta.filename} 学到新技能「${result.skillName}」`)
+          const learned = result.ok ? result.skillName : null
+
+          // 第二阶段：如果是源码文件，分析能否改进白龙马自身
+          let upgraded = false
+          const isSource = /\.(js|py|ts|go|rs)$/i.test(meta.filename || '')
+          if (isSource && content.length > 1000) {
+            try {
+              const selfAnalysis = await callLLM({
+                message: `你是一个代码审查专家。白龙马(Bailongma)是一个 Node.js + Electron 桌面 AI Agent 项目，源码在 src/ 目录。
+
+我刚投喂了一个外部源码文件「${meta.filename}」，它的核心模式已被提取为技能。
+
+现在请分析：这个文件里有没有可以直接改进白龙马自身源码的技术方案？
+- 更优的算法/数据结构
+- 更好的错误处理模式
+- 更高效的工具函数实现
+- 更清晰的模块组织方式
+
+如果有，输出改进方案（格式：文件路径 | 改进描述 | 关键代码片段）。如果外部代码不比白龙马现有的好，回复 "NO_UPGRADE"。
+
+外部文件内容:
+${content.slice(0, 4000)}`,
+                temperature: 0.2,
+              })
+              const selfText = selfAnalysis.content || ''
+              if (!selfText.includes('NO_UPGRADE') && selfText.length > 50) {
+                // 保存升级方案到 evolution-data/
+                const { paths } = await import('./paths.js')
+                const evoDir = path.join(paths.userDataDir || paths.resourcesDir, '..', 'evolution-data')
+                fs.mkdirSync(evoDir, { recursive: true })
+                const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+                const evoFile = path.join(evoDir, `self-upgrade-${ts}.md`)
+                fs.writeFileSync(evoFile, `# 自进化升级方案\n\n来源: ${meta.filename}\n时间: ${new Date().toISOString()}\n\n${selfText}\n\n---\n完整文件内容已存储为技能: ${learned || '未命名'}`)
+                upgraded = true
+                console.log(`[evolution] 源码升级方案: ${evoFile}`)
+              }
+            } catch (e) {
+              console.warn('[evolution] 自升级分析失败:', e.message)
+            }
+          }
+
+          const parts = []
+          if (learned) parts.push(`学到新技能「${learned}」`)
+          if (upgraded) parts.push('源码升级方案已保存到 evolution-data/')
+          if (parts.length) {
+            finishTurn(`🧬 进化完成！${parts.join('，')}`)
           } else {
             finishTurn(null)
           }
