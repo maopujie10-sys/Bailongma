@@ -2,7 +2,7 @@
 
 ## Current Version
 
-- `2.4.2`
+- `2.4.3`
 
 ## What This Release Includes
 
@@ -26,12 +26,12 @@ npm run build
 
 Installer output:
 
-- `D:\Projects\AI项目\BaiLongma-main\dist-build\Bailongma-Setup-2.4.2.exe`
+- `D:\Projects\AI项目\BaiLongma-main\dist-build\Bailongma-Setup-2.4.3.exe`
 - `D:\Projects\AI项目\BaiLongma-main\dist-build\latest.yml`
 
 ## Local Verification Checklist
 
-1. Install `Bailongma-Setup-2.4.2.exe`.
+1. Install `Bailongma-Setup-2.4.3.exe`.
 2. Launch the app and confirm the activation page appears on first run.
 3. Enter a valid API key and verify the app enters `brain-ui`.
 4. Uninstall the app.
@@ -53,9 +53,9 @@ npm run publish
 
 Published artifacts:
 
-- GitHub Release asset: `Bailongma-Setup-2.4.2.exe`
+- GitHub Release asset: `Bailongma-Setup-2.4.3.exe`
 - GitHub Release asset: `latest.yml`
-- GitHub Release asset: `Bailongma-Setup-2.4.2.exe.blockmap`
+- GitHub Release asset: `Bailongma-Setup-2.4.3.exe.blockmap`
 
 ## Notes On First Launch Of The Installer
 

@@ -1,4 +1,4 @@
-$version = "2.4.2"
+$version = "2.4.3"
 $token = $env:GH_TOKEN
 $owner = "maopujie10-sys"
 $repo = "Bailongma"

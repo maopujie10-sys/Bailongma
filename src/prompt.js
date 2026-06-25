@@ -606,20 +606,18 @@ Always use registered components — inline-template and inline-script are not s
     prompt += `\n\n${DIAGNOSE_BLOCK}`
   }
 
-  // Engineering Discipline — 始终注入浓缩工程规范（Clean Code + 软件设计哲学 + 程序员修炼之道）
-  const engBlock = getEngineeringDisciplineBlock()
-  if (engBlock) {
-    prompt += `\n\n${engBlock}`
-  }
-  // 修改已有代码时注入重构+遗留代码规范
-  if (shouldInjectRefactor(disciplineSignals)) {
-    const refBlock = getRefactorDisciplineBlock()
-    if (refBlock) prompt += `\n\n${refBlock}`
-  }
-  // 涉及生产/部署时注入发布规范
-  if (shouldInjectProduction(disciplineSignals)) {
-    const prodBlock = getProductionDisciplineBlock()
-    if (prodBlock) prompt += `\n\n${prodBlock}`
+  // Engineering Discipline — 仅在编码/排障场景注入，避免日常聊天拖慢速度
+  if (shouldInjectCoding(disciplineSignals) || shouldInjectDiagnose(disciplineSignals)) {
+    const engBlock = getEngineeringDisciplineBlock()
+    if (engBlock) prompt += `\n\n${engBlock}`
+    if (shouldInjectRefactor(disciplineSignals)) {
+      const refBlock = getRefactorDisciplineBlock()
+      if (refBlock) prompt += `\n\n${refBlock}`
+    }
+    if (shouldInjectProduction(disciplineSignals)) {
+      const prodBlock = getProductionDisciplineBlock()
+      if (prodBlock) prompt += `\n\n${prodBlock}`
+    }
   }
 
   // WeatherCard Rules —— 注意这是 ACUI 主段下的子段，注入到 ui_show Rules 之后位置
