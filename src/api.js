@@ -214,9 +214,21 @@ function decodeRequestBody(buffer, contentType = '') {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
-    req.on('data', c => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks)))
-    req.on('error', reject)
+    const MAX_SIZE = 100 * 1024 * 1024  // 100MB
+    let total = 0
+    const timer = setTimeout(() => reject(new Error('上传超时（120秒）')), 120000)
+    req.on('data', c => {
+      total += c.length
+      if (total > MAX_SIZE) {
+        clearTimeout(timer)
+        reject(new Error('文件超过 100MB 上限'))
+        req.destroy()
+        return
+      }
+      chunks.push(c)
+    })
+    req.on('end', () => { clearTimeout(timer); resolve(Buffer.concat(chunks)) })
+    req.on('error', (e) => { clearTimeout(timer); reject(e) })
   })
 }
 
@@ -463,6 +475,12 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     if (req.method === 'POST' && url.pathname === '/upload') {
       try {
         const ct = req.headers['content-type'] || ''
+        const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+        const MAX_UPLOAD = 100 * 1024 * 1024  // 100MB
+        if (contentLength > MAX_UPLOAD) {
+          jsonResponse(res, 413, { error: `文件过大（${(contentLength/1024/1024).toFixed(1)}MB），上限 100MB` })
+          return
+        }
         if (!ct.startsWith('multipart/form-data')) {
           jsonResponse(res, 400, { error: '需要 multipart/form-data' })
           return
@@ -472,7 +490,9 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           jsonResponse(res, 400, { error: '缺少 boundary' })
           return
         }
+        console.log(`[upload] 接收文件: ${(contentLength/1024/1024).toFixed(1)}MB`)
         const buf = await readBody(req)
+        console.log(`[upload] 已读取 ${(buf.length/1024/1024).toFixed(1)}MB，解析中...`)
         const files = parseMultipart(buf, boundary)
         if (!files.length) {
           jsonResponse(res, 400, { error: '未收到文件' })
@@ -486,6 +506,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           const safeName = `${hash}${ext}`
           fs.mkdirSync(paths.mediaDir, { recursive: true })
           fs.writeFileSync(path.join(paths.mediaDir, safeName), file.data)
+          console.log(`[upload] 已保存: ${safeName} (${(file.data.length/1024/1024).toFixed(1)}MB)`)
           results.push({
             filename: file.filename,
             url: `/media/chat/${safeName}`,
@@ -494,6 +515,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
         }
         jsonResponse(res, 200, { ok: true, files: results })
       } catch (e) {
+        console.error('[upload] 失败:', e.message)
         jsonResponse(res, 500, { error: `上传失败: ${e.message}` })
       }
       return
