@@ -1,5 +1,6 @@
 import { getDB, getConfig, setConfig } from '../db.js'
 import { detectAgents } from './detector.js'
+import { probeArmyEngines } from './army-adapter.js'
 
 const CONFIG_KEY_ASKED = 'agent_delegation_asked'
 const CONFIG_KEY_ALLOWED = 'agent_delegation_allowed'
@@ -126,11 +127,31 @@ export async function collectAgents() {
   ensureTable()
   console.log('[Agents] 开始扫描本地 AI Agent...')
   try {
-    const results = await detectAgents()
-    saveAgents(results)
-    const found = results.filter(a => a.available)
-    console.log(`[Agents] 扫描完成：发现 ${found.length}/${results.length} 个可用 Agent`)
-    return results
+    // 1. 探测 CLI Agent（Claude Code、Codex 等）
+    const cliAgents = await detectAgents()
+
+    // 2. 探测 Python Agent 军团（CrewAI、MetaGPT、Browser-Use）
+    const armyEngines = await probeArmyEngines()
+    const armyAgents = armyEngines.filter(e => e.available).map(e => ({
+      id: `army-${e.engine}`,
+      name: e.engine === 'crewai' ? 'CrewAI 多Agent协作' : e.engine === 'metagpt' ? 'MetaGPT 软件工厂' : 'Browser-Use 浏览器操控',
+      description: e.engine === 'crewai' ? '多Agent角色协作编排引擎' : e.engine === 'metagpt' ? '软件公司多Agent协作开发' : 'AI浏览器自动化操控',
+      available: true,
+      version: e.version || 'installed',
+      invokeType: 'army',
+      invokeCmd: e.engine,
+      invokeArgs: ['{prompt}'],
+      notes: `Python: ${e.engine} ${e.version || ''}`,
+      docsUrl: null,
+      docsSearchQuery: null,
+      detectedAt: new Date().toISOString(),
+    }))
+
+    const allAgents = [...cliAgents, ...armyAgents]
+    saveAgents(allAgents)
+    const found = allAgents.filter(a => a.available)
+    console.log(`[Agents] 扫描完成：${found.length} 个可用 (CLI: ${cliAgents.filter(a=>a.available).length}, Army: ${armyAgents.length})`)
+    return allAgents
   } catch (err) {
     console.error('[Agents] 扫描失败：', err.message)
     return []

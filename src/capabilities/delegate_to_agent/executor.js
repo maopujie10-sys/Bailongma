@@ -1,5 +1,6 @@
 import { execSync } from 'child_process'
 import { getDB } from '../../db.js'
+import { dispatchToArmy } from '../../agents/army-adapter.js'
 
 export async function execute(params) {
   const { agent_id, prompt, context, timeout = 60 } = params || {}
@@ -16,11 +17,18 @@ export async function execute(params) {
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt
   const timeoutMs = Math.min(timeout, 300) * 1000
 
-  console.log(`[delegate] 派出 ${agent.name} (${agent_id}): ${fullPrompt.slice(0, 100)}...`)
+  console.log(`[delegate] 派出 ${agent.name} (${agent_id}, ${invokeType}): ${fullPrompt.slice(0, 100)}...`)
 
   try {
     let result
-    if (invokeType === 'cli') {
+    if (invokeType === 'army') {
+      // Python Agent 军团（CrewAI / MetaGPT / Browser-Use）
+      const armyResult = await dispatchToArmy({ engine: cmd, task: fullPrompt, config: { timeout } })
+      if (armyResult.ok) {
+        return { ok: true, agent: agent.name, agent_id, output: armyResult.result }
+      }
+      return { ok: false, agent: agent.name, agent_id, error: armyResult.error }
+    } else if (invokeType === 'cli') {
       // CLI 模式：直接执行命令
       const shellCmd = [cmd, ...args.map(a => a === '{prompt}' ? fullPrompt : a)]
         .map(s => s.includes(' ') ? `"${s}"` : s).join(' ')
