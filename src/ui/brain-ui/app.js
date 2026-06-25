@@ -1661,28 +1661,29 @@ function updateFileTree(data) {
   html += '</ul>';
   container.innerHTML = html;
 
-  // 目录点击：请求展开
+  // 目录点击：直接调 /sandbox-files API 展开子目录
   container.querySelectorAll('.file-tree-dir').forEach(el => {
-    el.addEventListener('click', () => {
+    el.addEventListener('click', async () => {
       const path = el.dataset.path;
-      fetch(API + '/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'list_dir ' + path + '/' })
-      }).catch(() => {});
+      try {
+        const resp = await fetch(API + '/sandbox-files?path=' + encodeURIComponent(path));
+        if (resp.ok) {
+          const result = await resp.json();
+          updateFileTree(result);
+        }
+      } catch {}
     });
   });
 
-  // 文件点击：预览内容
+  // 文件点击：通过 /message 发 read_file 让 agent 预览
   container.querySelectorAll('.file-tree-file').forEach(el => {
     el.addEventListener('click', () => {
       const path = el.dataset.path;
-      // 通过 chat 发送 read_file 命令来触发预览
-      fetch(API + '/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'read_file ' + path })
-      }).catch(() => {});
+      const msgInput = document.getElementById('msg-input');
+      if (msgInput) {
+        msgInput.value = '查看文件内容: ' + path;
+        msgInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     });
   });
 }
@@ -2376,7 +2377,11 @@ initWechatPopup();
       const target = tab.dataset.tab;
       if (target === 'files') {
         mainElements.forEach(el => el.style.display = 'none');
-        if (fileTreeContainer) fileTreeContainer.style.display = '';
+        if (fileTreeContainer) {
+          fileTreeContainer.style.display = '';
+          // 切换到文件标签时自动加载 sandbox 目录
+          fetch(API + '/sandbox-files?path=').then(r => r.json()).then(d => updateFileTree(d)).catch(() => {});
+        }
       } else {
         mainElements.forEach(el => el.style.display = '');
         if (fileTreeContainer) fileTreeContainer.style.display = 'none';
@@ -2384,15 +2389,14 @@ initWechatPopup();
     });
   });
 
-  // 刷新按钮
+  // 刷新按钮 — 直接调 /sandbox-files API
   const refreshBtn = document.getElementById('file-tree-refresh');
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => {
-      fetch(API + '/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'list_dir sandbox/' })
-      }).catch(() => {});
+    refreshBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch(API + '/sandbox-files?path=');
+        if (resp.ok) updateFileTree(await resp.json());
+      } catch {}
     });
   }
 })();
