@@ -379,16 +379,16 @@ export function initChat({
     }
 
     if (isCode(file) && file.size <= CODE_MAX) {
-      // 代码/文本文件 → 读取内容 → 直接发送 /learn
-      const text = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onload = () => resolve(reader.result)
-        reader.onerror = reject
-        reader.readAsText(file)
-      })
-      const lang = file.name.split('.').pop()
-      const msg = `/学习\n从文件 \`${file.name}\` 学习：\n\n\`\`\`${lang}\n${text}\n\`\`\``
-      await send({ text: msg })
+      // 文本/代码文件 → 上传后端，静默存储到第二大脑
+      const form = new FormData(); form.append('file', file)
+      const ctl = new AbortController(); const to = setTimeout(() => ctl.abort(), 300000)
+      const resp = await fetch(`${apiBase}/upload`, { method: 'POST', body: form, signal: ctl.signal }).finally(() => clearTimeout(to))
+      if (!resp.ok) throw new Error('上传失败')
+      const result = await resp.json()
+      const url = result.files?.[0]?.url
+      if (!url) throw new Error('上传失败')
+      // 静默投喂到记忆系统，不展示内容
+      await send({ text: `/记忆 存储文件 ${file.name} ${url}` })
       return
     }
 
@@ -416,14 +416,62 @@ export function initChat({
     msgInput.focus()
   }
 
+  // 递归遍历文件夹
+  async function getFilesFromEntry(entry) {
+    if (entry.isFile) {
+      return new Promise((resolve) => entry.file(resolve))
+    }
+    if (entry.isDirectory) {
+      const reader = entry.createReader()
+      const allFiles = []
+      const readBatch = () => new Promise((resolve) => {
+        reader.readEntries((entries) => {
+          if (!entries.length) return resolve()
+          Promise.all(entries.map(e => getFilesFromEntry(e))).then(results => {
+            results.flat().forEach(f => allFiles.push(f))
+            readBatch().then(resolve)
+          })
+        })
+      })
+      await readBatch()
+      return allFiles
+    }
+    return []
+  }
+
   async function handleFiles(files) {
-    for (const file of files) {
+    // 也支持文件夹（从 dataTransfer.items 递归提取）
+    const allFiles = [...files]
+    // 如果 files 为空但 dataTransfer 有 items，尝试从 items 提取
+    for (const file of allFiles) {
       try {
         await feedFile(file)
       } catch (e) {
         console.warn('[feed]', file.name, e.message)
         addMsg('jarvis', `投喂失败 \`${file.name}\`: ${e.message}`, { alert: false, pending: false })
       }
+    }
+  }
+
+  async function handleDropItems(dataTransfer) {
+    const items = dataTransfer?.items
+    if (!items) return
+    const allFiles = []
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry?.()
+      if (entry) {
+        const files = await getFilesFromEntry(entry)
+        allFiles.push(...(Array.isArray(files) ? files : [files]))
+      } else {
+        const file = items[i].getAsFile()
+        if (file) allFiles.push(file)
+      }
+    }
+    if (allFiles.length) {
+      for (const file of allFiles) {
+        try { await feedFile(file) } catch (e) { console.warn('[feed]', file.name, e.message) }
+      }
+      addMsg('jarvis', `已存储 ${allFiles.length} 个文件到第二大脑`, { alert: false, pending: false })
     }
   }
 
@@ -442,8 +490,14 @@ export function initChat({
   })
   document.addEventListener('drop', async e => {
     e.preventDefault(); hideDragOverlay()
-    const files = e.dataTransfer?.files
-    if (files?.length) { openChat(); await handleFiles(files) }
+    if (e.dataTransfer?.files?.length) {
+      // 优先用 webkitGetAsEntry 支持文件夹递归
+      if (e.dataTransfer.items?.[0]?.webkitGetAsEntry) {
+        await handleDropItems(e.dataTransfer)
+      } else {
+        openChat(); await handleFiles(e.dataTransfer.files)
+      }
+    }
   })
 
   // 粘贴事件 — Ctrl+V 粘贴图片直接渲染
