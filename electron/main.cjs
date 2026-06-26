@@ -238,7 +238,22 @@ async function createWindow() {
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
     if (permission === 'media') return true
     return false
+  }
+
+  // 右键菜单：复制 / 粘贴 / 全选
+  mainWindow.webContents.on("context-menu", (event, params) => {
+    const { clipboard, Menu } = require("electron")
+    const template = []
+    if (params.selectionText) {
+      template.push({ label: "复制", accelerator: "Ctrl+C", click: () => clipboard.writeText(params.selectionText) })
+    }
+    if (params.isEditable) {
+      template.push({ label: "粘贴", accelerator: "Ctrl+V", click: () => mainWindow.webContents.paste() })
+      template.push({ label: "全选", accelerator: "Ctrl+A", click: () => mainWindow.webContents.selectAll() })
+    }
+    if (template.length > 0) Menu.buildFromTemplate(template).popup()
   })
+)
 
   // 窗口级快捷键（不用 globalShortcut，避免劫持其他应用的 F11/Ctrl+R 等）
   //   F12      → 切换 DevTools
