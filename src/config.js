@@ -10,6 +10,7 @@ export const QWEN_PROVIDER = 'qwen'
 export const MOONSHOT_PROVIDER = 'moonshot'
 export const ZHIPU_PROVIDER = 'zhipu'
 export const MIMO_PROVIDER = 'mimo'
+export const GOOGLE_PROVIDER = 'google'
 
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7'
@@ -160,6 +161,12 @@ export const ZHIPU_MODELS = [
     label: 'glm-4-flashx-250414',
     deprecated: false,
   },
+]
+
+export const GOOGLE_MODELS = [
+  { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", deprecated: false },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", deprecated: false },
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", deprecated: false },
 ]
 
 export const MIMO_MODELS = [
@@ -528,7 +535,7 @@ function loadFromEnv() {
     }
   }
   for (const [provider, pConfig] of Object.entries(PROVIDER_CONFIG)) {
-    if (provider === DEEPSEEK_PROVIDER || provider === MINIMAX_PROVIDER) continue
+    if (provider === DEEPSEEK_PROVIDER || provider === MINIMAX_PROVIDER || provider === GOOGLE_PROVIDER) continue
     const key = process.env[pConfig.envVar]
     if (key) {
       return {
@@ -1201,6 +1208,7 @@ const CHAT_PROVIDERS_WITH_AMBIGUOUS_SK_KEYS = new Set([
   MOONSHOT_PROVIDER,
   ZHIPU_PROVIDER,
   MIMO_PROVIDER,
+  GOOGLE_PROVIDER,
 ])
 
 export function getVoiceConfig() {
