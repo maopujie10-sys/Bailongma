@@ -238,7 +238,7 @@ async function createWindow() {
   mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
     if (permission === 'media') return true
     return false
-  }
+  })
 
   // 右键菜单：复制 / 粘贴 / 全选
   mainWindow.webContents.on("context-menu", (event, params) => {
@@ -253,7 +253,6 @@ async function createWindow() {
     }
     if (template.length > 0) Menu.buildFromTemplate(template).popup()
   })
-)
 
   // 窗口级快捷键（不用 globalShortcut，避免劫持其他应用的 F11/Ctrl+R 等）
   //   F12      → 切换 DevTools

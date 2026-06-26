@@ -92,7 +92,7 @@ function recentActionsLookLikeExecution(text) {
   if (!t) return false
   return ((t.match(/exec_command\(/g) || []).length >= 2 ||
     (/write_file\(/.test(t) && /exec_command\(/.test(t)) ||
-    (/read_file\(/.test(t) && /write_file\(/.test(t) && /exec_command\(/.test(t))))
+    (/read_file\(/.test(t) && /write_file\(/.test(t) && /exec_command\(/.test(t)))
 }
 
 export function shouldInjectSoul({ userMessage = '', taskText = '', recentActionsText = '' } = {}) {
