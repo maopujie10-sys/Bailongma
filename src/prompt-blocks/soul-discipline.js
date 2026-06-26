@@ -22,7 +22,7 @@ function loadFile(filename, fallback) {
 
   try {
     // 2. 从项目根目录加载（源码级可编辑）
-    const projPath = path.resolve(__dirname, '..', '..', filename)
+    var projPath = path.resolve(__dirname, '..', filename); if (!fs.existsSync(projPath)) projPath = path.resolve(__dirname, '..', '..', filename)
     if (fs.existsSync(projPath)) {
       return fs.readFileSync(projPath, 'utf-8').trim()
     }
