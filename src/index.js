@@ -803,18 +803,25 @@ function enqueueDueReminders() {
 
 // Common LLM failure handler: set rate-limit on 429, requeue message, drop after max retries
 function handleLLMFailure(err, label, msg) {
-  console.error('LLM call failed:', err.message)
-  if (err.message?.includes('429') || err.status === 429) setRateLimited()
-  emitEvent('error', { label, error: err.message })
+  const errMsg = err.message || String(err)
+  const status = err.status || err.response?.status || ''
+  console.error('LLM call failed:', errMsg, status ? `(status: ${status})` : '')
+  if (errMsg.includes('429') || status === 429) setRateLimited()
+  emitEvent('error', { label, error: errMsg })
   if (msg) {
     const nextRetry = (msg.retryCount || 0) + 1
     if (nextRetry <= MAX_MESSAGE_RETRIES) {
       console.log(`[system] Message requeued (retry ${nextRetry}/${MAX_MESSAGE_RETRIES})`)
-      emitEvent('message_requeued', { fromId: msg.fromId, retryCount: nextRetry, error: err.message })
+      emitEvent('message_requeued', { fromId: msg.fromId, retryCount: nextRetry, error: errMsg })
       requeueMessage(msg, nextRetry)
     } else {
       console.error(`[system] Message dropped after ${MAX_MESSAGE_RETRIES} retries: ${msg.content?.slice(0, 60)}`)
-      emitEvent('message_dropped', { fromId: msg.fromId, retryCount: nextRetry - 1, reason: err.message })
+      // 重试耗尽 → 把错误回复给用户，不再静默失败
+      try {
+        const errorReply = `❌ LLM调用失败(${config.provider}/${config.model}): ${errMsg.slice(0, 200)}`
+        emitEvent('response', { label, content: errorReply })
+      } catch {}
+      emitEvent('message_dropped', { fromId: msg.fromId, retryCount: nextRetry - 1, reason: errMsg })
     }
   }
 }
