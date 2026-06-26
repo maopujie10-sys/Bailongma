@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, switchModel } from './config.js'
 import { executeCapability } from './capabilities/executor.js'
+import { triggerHooks } from './core-hooks.js'
 import { getToolSchemas } from './capabilities/schemas.js'
 import { recordUsage, shouldThrottle } from './quota.js'
 import { insertActionLog } from './db.js'
@@ -145,7 +146,9 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
 
   try {
   // create() 也放进 try：连接建立阶段就卡死时，idle 触发 → 这里抛 AbortError → 下方 catch 转成可重试的瞬时错误。
-  const stream = await getClient().chat.completions.create(requestParams, { signal: reqController.signal })
+  const modifiedParams = await triggerHooks("onBeforeLLM", requestParams, {}) || requestParams
+  const stream = await getClient().chat.completions.create(modifiedParams, { signal: reqController.signal })
+  triggerHooks("onAfterLLM", { model: modifiedParams.model }, {}).catch(() => {})
   for await (const chunk of stream) {
     armIdle()  // 收到增量，重置空闲计时（正常长流式生成因此不受影响）
     if (signal?.aborted) break
@@ -1128,7 +1131,9 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           }
           // 真正开始执行前通知 UI —— 让用户知道当前停留在哪一步的工具上
           onToolExecute?.(tc.name, normalizedArgs)
-          result = await executeCapability(tc.name, normalizedArgs, { ...toolContext, signal })
+          const hookModified = await triggerHooks('onToolCall', { name: tc.name, args: normalizedArgs }, toolContext) || {}
+          result = await executeCapability(hookModified.name || tc.name, hookModified.args || normalizedArgs, { ...toolContext, signal })
+          await triggerHooks('onAfterToolCall', { name: tc.name, result, ok: result?.ok !== false }, toolContext)
           recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
           // 单一权威：一次未被 silent/closer 拦截、未熔断的 send_message 真正执行过 →
           //   用户确实收到了回复。这是 delivered 唯一被置 true 的地方（除文末协议兜底外）。

@@ -1,72 +1,63 @@
-// core-hooks.js — 核心钩子系统
-// 在关键循环点注入扩展逻辑，无需改 index.js
-// 钩子定义存储在用户数据目录 core-hooks.json
-
+// core-hooks.js v2 — sandboxed VM hooks
 import fs from 'fs'
 import path from 'path'
+import vm from 'vm'
 
-const hooks = {
-  onStartup: [],
-  onTick: [],
-  onMessage: [],
-  onBeforeLLM: [],
-  onAfterLLM: [],
-  onToolCall: [],
-  onAfterToolCall: [],
-  onShutdown: [],
-}
-
+const HOOK_POINTS = ['onStartup','onTick','onMessage','onBeforeLLM','onAfterLLM','onToolCall','onAfterToolCall','onShutdown']
+let hooks = {}
+for (const p of HOOK_POINTS) hooks[p] = []
 let loaded = false
 
-export function loadCoreHooks() {
-  if (loaded) return
-  loaded = true
+function loadFromFile() {
   try {
     const userDir = process.env.BAILONGMA_USER_DIR || ''
-    const hooksFile = path.join(userDir, 'core-hooks.json')
-    if (fs.existsSync(hooksFile)) {
-      const data = JSON.parse(fs.readFileSync(hooksFile, 'utf-8'))
-      for (const key of Object.keys(hooks)) {
-        if (Array.isArray(data[key])) hooks[key] = data[key]
-      }
-      const active = Object.entries(hooks).filter(function(e) { return e[1].length > 0 })
-      if (active.length > 0) {
-        console.log('[core-hooks] Loaded: ' + active.map(function(e) { return e[0] + ':' + e[1].length }).join(', '))
-      }
+    if (!userDir) return
+    const hf = path.join(userDir, 'core-hooks.json')
+    if (!fs.existsSync(hf)) {
+      try { fs.writeFileSync(hf, JSON.stringify(hooks, null, 2)) } catch {}
+      return
     }
-  } catch (e) {
-    console.warn('[core-hooks] Load failed:', e.message)
-  }
+    const data = JSON.parse(fs.readFileSync(hf, 'utf-8'))
+    for (const k of HOOK_POINTS) {
+      if (Array.isArray(data[k])) hooks[k] = data[k].filter(h => typeof h === 'string' || typeof h === 'function' || (h && h.code))
+    }
+    const active = Object.entries(hooks).filter(([,v]) => v.length > 0)
+    if (active.length > 0) console.log('[core-hooks] ' + active.map(([k,v]) => k + ':' + v.length).join(' '))
+  } catch (e) { console.warn('[core-hooks] load:', e.message) }
 }
 
-export function registerHook(hookPoint, fn) {
-  if (!hooks[hookPoint]) { console.warn('[core-hooks] Unknown hook point:', hookPoint); return }
-  hooks[hookPoint].push(fn)
-}
+export function loadCoreHooks() { if (!loaded) { loaded = true; loadFromFile() } }
+export function registerHook(hookPoint, fn) { if (HOOK_POINTS.includes(hookPoint)) hooks[hookPoint].push(fn) }
 
-export async function triggerHooks(hookPoint) {
-  var args = Array.prototype.slice.call(arguments, 1)
-  if (!hooks[hookPoint] || hooks[hookPoint].length === 0) return args[0]
-  for (var i = 0; i < hooks[hookPoint].length; i++) {
+function runOne(hook, args) {
+  return new Promise(resolve => {
+    const t = setTimeout(() => resolve({ err: 'timeout' }), 5000)
     try {
-      var hook = hooks[hookPoint][i]
-      if (typeof hook === 'function') {
-        var result = await hook.apply(null, args)
-        if (result !== undefined) args[0] = result
-      } else if (hook && hook.code) {
-        var fn = new Function('args', 'state', hook.code)
-        var result = await fn(args, args[1])
-        if (result !== undefined) args[0] = result
-      }
-    } catch (e) {
-      console.warn('[core-hooks] Error in ' + hookPoint + ':', e.message)
-    }
+      const code = typeof hook === 'string' ? hook : (hook && hook.code ? hook.code : null)
+      if (!code) { clearTimeout(t); resolve({ err: 'invalid hook' }); return }
+      const ctx = vm.createContext({ console: { log() {}, warn() {}, error() {} }, require: undefined, process: undefined, setTimeout: undefined, setInterval: undefined })
+      try {
+        const fn = new vm.Script('(' + code + ')').runInContext(ctx)
+        Promise.resolve(fn(args[0], args[1]))
+          .then(r => { clearTimeout(t); resolve({ result: r }) })
+          .catch(e => { clearTimeout(t); resolve({ err: e.message }) })
+      } catch (e) { clearTimeout(t); resolve({ err: e.message }) }
+    } catch (e) { clearTimeout(t); resolve({ err: e.message }) }
+  })
+}
+
+export async function triggerHooks(hookPoint, ...args) {
+  if (!hooks[hookPoint] || hooks[hookPoint].length === 0) return args[0]
+  for (const hook of hooks[hookPoint]) {
+    const { result, err } = await runOne(hook, args)
+    if (err) console.warn('[core-hooks] ' + hookPoint + ':', err)
+    else if (result !== undefined) args[0] = result
   }
   return args[0]
 }
 
 export function getHookStatus() {
-  var result = {}
-  Object.keys(hooks).forEach(function(k) { result[k] = hooks[k].length })
-  return result
+  const r = {}
+  for (const k of HOOK_POINTS) r[k] = hooks[k].length
+  return r
 }
