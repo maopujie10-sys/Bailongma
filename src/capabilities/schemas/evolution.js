@@ -55,6 +55,7 @@ export const evolutionSchemas = {
       }
     }
   },
+  self_test: { type: "function", function: { name: "self_test", description: "快速自测：检查源码语法错误、关键文件存在、Git状态", parameters: { type: "object", properties: {}, required: [] } } },
   read_source: {
     type: "function",
     function: {

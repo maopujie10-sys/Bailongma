@@ -1,30 +1,27 @@
 ---
 name: self-evolution
-description: 当白龙马从投喂、对话、经验中学到新知识或发现自身不足时，自动触发自我进化流程。分析→改源码→编译→替换重启。
-allowed-tools: [Read, Write, Bash, list_source, read_source, write_source, self_build, self_upgrade, self_rollback]
+description: 白龙马自我进化核心技能。投喂源码时自动触发：AST级分析→双校验写入→智能构建→原子升级+30s健康检查→失败自动回滚。非UI框架外所有模块均可自我升级。
+allowed-tools: [Read, Write, Bash, list_source, read_source, write_source, self_build, self_upgrade, self_rollback, self_test]
 metadata:
-  trigger: 用户投喂要求吸收/复刻/学习功能、发现自身能力缺失、要求升级进化、发现代码缺陷
+  trigger: 投喂源码/要求吸收复刻学习/发现能力缺失/要求升级进化/发现代码缺陷
 ---
 
-# Self-Evolution: 白龙马自我进化
+# Self-Evolution v3
 
-## 核心原则
-你能读源码、改源码、编译自己、替换自己。每次学到新东西，永久写入源代码。
+## 核心能力
+- read_source 自动解析 imports/functions/classes 结构
+- write_source: add_import / add_function / replace_function / replace(空白容错) / insert / append / delete
+- 每次写入先写 temp → node --check 语法检查 → 导入路径验证 → 通过才原子 rename
+- self_build 自动检测改动范围(仅src走增量,原生模块走全量)
+- self_upgrade: upgrade-launcher detached子进程→等旧进程退出→原子替换→启动新版→30s HTTP健康检查→失败自动回滚快照→重启旧版
+- self_test: 快速扫描源码语法错误+关键文件+Git状态
+
+## 安全网
+1. write_source前git commit备份 2. 语法错→改动丢弃 3. 导入错→拒绝 4. 原子写入(temp→rename) 5. 升级前完整快照 6. 30s健康检查→不健康自动恢复 7. self_rollback→git reset+快照恢复
 
 ## 进化流程
-### Phase 1: 分析 - list_source看结构 + read_source读文件 + 确定改动计划
-### Phase 2: 改源码 - write_source逐个修改，自动git备份
-### Phase 3: 编译 - self_build，失败则修复或self_rollback
-### Phase 4: 升级 - self_upgrade替换EXE并重启
-
-## 安全规则
-- 每次write_source自动git commit备份
-- 编译不通过不升级
-- 核心循环谨慎修改，优先扩展capabilities/skills/social模块
-- 禁止改node_modules,dist-build,.git
-
-## 改源码能力范围
-src/config.js, src/db.js, src/llm.js, src/capabilities/, src/skills/, src/social/, src/memory/, src/context/, src/agents/, src/index.js(谨慎)
-
-## 完整进化示例
-用户投喂图片生成源码 → 分析结构 → write_source加工具schema+executor+policy → self_build编译 → self_upgrade重启 → 新功能生效
+Phase 1: list_source+read_source分析结构
+Phase 2: write_source逐文件修改(add_import/add_function/replace等)
+Phase 3: self_test快速自检
+Phase 4: self_build智能构建
+Phase 5: self_upgrade原子升级+健康检查
