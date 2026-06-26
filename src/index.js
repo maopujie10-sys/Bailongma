@@ -55,6 +55,7 @@ import { parseMarkers } from './runtime/markers.js'
 import { buildStrictEvaluationContext, filterStrictEvaluationTools, resolveStrictEvaluationMode } from './runtime/strict-evaluation.js'
 import { extractVerbatimPayload, findRecentVerbatimPayload, hasInlineVerbatimPayload, isVerbatimOutputRequest, isVerbatimSetup, isVerbatimStart } from './runtime/verbatim.js'
 import { refreshUserProfile } from './profile/infer.js'
+import { loadCoreHooks, triggerHooks } from './core-hooks.js'
 
 // On first launch, copy sandbox seed files from the resource directory to the user data directory (Electron install)
 seedSandboxOnce()
@@ -103,6 +104,7 @@ await collectAgents()
 await loadInstalledTools()
 
 // Load Agent Skills metadata. Full SKILL.md bodies are injected only when a turn matches.
+loadCoreHooks()
 const startupSkills = refreshSkills()
 console.log(`[skills] Loaded ${startupSkills.length} Agent Skill(s)`)
 
