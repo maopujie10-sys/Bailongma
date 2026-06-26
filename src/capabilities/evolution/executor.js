@@ -1,4 +1,4 @@
-// capabilities/evolution/executor.js v3 TEST — 完美版本
+// capabilities/evolution/executor.js v3 — 完美版本
 // AST结构化修改 + 原子写入 + 导入验证 + 语法校验 + 增量构建 + 原子升级
 
 import fs from 'fs'
