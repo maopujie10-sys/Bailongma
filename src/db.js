@@ -57,6 +57,9 @@ function initSchema() {
   try { db.exec(`ALTER TABLE memories ADD COLUMN visibility INTEGER NOT NULL DEFAULT 1`) } catch {}
   try { db.exec(`ALTER TABLE memories ADD COLUMN hidden_at TEXT`) } catch {}
   try { db.exec(`ALTER TABLE memories ADD COLUMN merged_into TEXT`) } catch {}
+  // 迁移：投喂模块需要的 kind / source 字段
+  try { db.exec(`ALTER TABLE memories ADD COLUMN kind TEXT DEFAULT ''`) } catch {}
+  try { db.exec(`ALTER TABLE memories ADD COLUMN source TEXT DEFAULT ''`) } catch {}
   try { db.exec(`CREATE INDEX IF NOT EXISTS idx_memories_visibility ON memories(visibility)`) } catch {}
   // 迁移：conversations 加 channel 列
   try { db.exec(`ALTER TABLE conversations ADD COLUMN channel TEXT DEFAULT ''`) } catch {}

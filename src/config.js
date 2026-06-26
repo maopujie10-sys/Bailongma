@@ -500,7 +500,8 @@ function persistLlmProviderConfig(record) {
     provider,
     apiKey: String(record.apiKey || '').trim(),
     model: normalizeModel(record.model, provider),
-    baseURL: undefined,
+    // 用户自定义 baseURL 才存（与 provider 默认值不同时），否则 undefined 表示用默认
+    baseURL: typeof record.baseURL === 'string' && record.baseURL.trim() ? record.baseURL.trim() : undefined,
     activatedAt: record.activatedAt || new Date().toISOString(),
   })
 }
@@ -553,7 +554,10 @@ function applyConfig(provider, apiKey, model, customBaseURL) {
   config.provider = provider
   config.model = normalizeModel(model, provider)
   config.apiKey = apiKey
-  config.baseURL = pConfig.baseURL
+  // 用户显式指定了 baseURL 就用用户的，否则用 provider 默认地址
+  config.baseURL = (typeof customBaseURL === 'string' && customBaseURL.trim())
+    ? customBaseURL.trim()
+    : pConfig.baseURL
   config.needsActivation = false
 }
 
@@ -831,7 +835,7 @@ export function getActivationStatus() {
     activated: !config.needsActivation,
     provider: config.provider,
     model: config.model,
-    baseURL: config.provider === 'custom' ? config.baseURL : undefined,
+    baseURL: config.baseURL || undefined,
     models: pConfig ? pConfig.models : customModels,
     defaultModel: pConfig ? pConfig.defaultModel : (config.model || DEFAULT_DEEPSEEK_MODEL),
   }

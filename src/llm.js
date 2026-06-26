@@ -531,7 +531,7 @@ const TOOL_LOOP_LIMITS = {
   maxConsecutiveFailures: 10,
   maxSameFailures: 10,
   loopWindowSize: 50,
-  loopUniqueThreshold: 1,
+  loopUniqueThreshold: 0,
   // 不确定回退（层 3，对应论文 ReAct→CoT-SC 的"在限定步数内没给出答案就退回推理"）：
   // 不是失败计数触发，而是"做了很多步还没给用户结果"这个非收敛信号触发。模型可能每步都
   // 成功却方向全错（论文实证 ReAct 推理错误率反而高于 CoT）——失败熔断永远抓不到这种。
