@@ -752,6 +752,17 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       return
     }
 
+    // GET /skills — list available skills
+    if (req.method === 'GET' && url.pathname === '/skills') {
+      try {
+        const { refreshSkills } = await import('./skills/registry.js')
+        const skills = refreshSkills()
+        const list = skills.map(s => ({ name: s.name, description: s.description, source: s.source }))
+        jsonResponse(res, 200, { ok: true, count: list.length, skills: list })
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: e.message }) }
+      return
+    }
+
     // GET /quota
     if (req.method === 'GET' && url.pathname === '/quota') {
       jsonResponse(res, 200, getQuotaStatus())

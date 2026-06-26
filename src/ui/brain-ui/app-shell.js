@@ -137,6 +137,13 @@ const createSecondaryPanel = () => `
   <div class="stream" style="flex:1;">
     <div class="stream-inner" id="si-l2"></div>
   </div>
+  <div class="skills-quick" style="padding:6px 8px;border-top:1px solid rgba(255,255,255,0.08);font-size:10px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <span style="font-weight:600;">🛠 可用技能</span>
+      <span style="opacity:0.5;font-size:9px;" id="skill-count">—</span>
+    </div>
+    <div id="skills-list" style="max-height:120px;overflow-y:auto;opacity:0.7;line-height:1.5;"></div>
+  </div>
 </aside>
 `;
 

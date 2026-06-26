@@ -1031,6 +1031,27 @@ function formatRetryDelay(ms) {
   return `${(ms / 1000).toFixed(ms % 1000 === 0 ? 0 : 1)}s`;
 }
 
+// ── 技能列表 ──────────────────────────────────────────────────
+async function refreshSkillsUI() {
+  try {
+    const el = document.getElementById("skills-list");
+    const countEl = document.getElementById("skill-count");
+    if (!el || !countEl) return;
+    const r = await fetch("/skills");
+    const d = await r.json();
+    if (d.ok) {
+      countEl.textContent = d.count + " 个";
+      const bySource = {};
+      d.skills.forEach(s => { const src = s.source || "other"; if (!bySource[src]) bySource[src] = []; bySource[src].push(s.name); });
+      el.innerHTML = Object.entries(bySource).map(([src, names]) =>
+        '<span style="opacity:0.5">' + src + ':</span> ' + names.join(", ")
+      ).join("<br>");
+    }
+  } catch {}
+}
+setTimeout(refreshSkillsUI, 2000);
+setInterval(refreshSkillsUI, 60000);
+
 let tokenAccum = 0;
 let tokenWindow = Date.now();
 const tokRateEl = document.getElementById("tok-rate");
