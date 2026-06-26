@@ -70,6 +70,12 @@ const TOOL_RISK = {
   generate_video: 'medium',
   ui_register: 'medium',
   set_security: 'high',
+  write_source: 'high',
+  self_build: 'high',
+  self_upgrade: 'high',
+  self_rollback: 'high',
+  list_source: 'low',
+  read_source: 'low',
 }
 export function classifyTool(name) {
   return TOOL_RISK[name] || 'medium'
