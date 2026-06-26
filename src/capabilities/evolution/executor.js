@@ -3,7 +3,7 @@
 
 import fs from 'fs'
 import path from 'path'
-import { execSync } from 'child_process'
+import { execSync, execFileSync } from 'child_process'
 import { fileURLToPath } from 'url'
 
 const PROJ_DIR = 'D:\\Projects\\AI项目\\BaiLongma-main'
