@@ -9,7 +9,7 @@ export const evolutionSchemas = {
         type: "object",
         properties: {
           file: { type: "string", description: "源文件路径，相对于项目根目录，如 src/config.js、src/index.js。" },
-          action: { type: "string", enum: ["replace", "insert_after", "insert_before", "append", "delete_lines"], description: "操作类型。" },
+          action: { type: "string", enum: ["replace", "add_import", "add_function", "replace_function", "insert_after", "insert_before", "append", "delete_lines"], description: "操作类型。" },
           old_string: { type: "string", description: "replace/delete_lines 时：要替换或删除的原始文本（必须精确匹配）。" },
           new_string: { type: "string", description: "replace/insert/append 时：要写入的新文本。" },
           line: { type: "number", description: "insert_after/insert_before 时的目标行号（1-based）。" },
