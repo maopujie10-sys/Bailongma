@@ -552,6 +552,8 @@ Always use registered components — inline-template and inline-script are not s
 
   let prompt = fixed.trim()
   if (stableSelf) prompt += `\n\n${stableSelf}`
+  // SOUL 身份规则必须注入在提示词最前面（放末尾会被记忆/技能淹没，LLM不遵守）
+  if (SOUL_BLOCK) prompt += `\n\n${SOUL_BLOCK}`
 
   // === Wave 2 按需注入：场景规则段 ===
   // 这些段从 fixed CORE 段剥离出来，命中 gate 才注入。原则：宁可错触发不要漏触发。
