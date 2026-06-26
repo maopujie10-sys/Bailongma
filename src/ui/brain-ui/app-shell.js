@@ -103,64 +103,38 @@ const createPrimaryPanel = () => `
 
 const createSecondaryPanel = () => `
 <aside id="panel-l2" class="panel">
-  <header class="panel-stats">
-    <div class="stat">
-      <span class="stat-label">状态</span>
-      <div class="stat-value live" id="conn-state"><span class="live-dot"></span>Token流</div>
+  <header class="panel-stats" style="display:flex;flex-wrap:wrap;gap:4px;padding:6px 8px;">
+    <div class="stat" style="flex:1;min-width:40px;text-align:center;">
+      <span class="stat-label" style="font-size:9px;opacity:0.7;">状态</span>
+      <div class="stat-value live" id="conn-state" style="font-size:10px;"><span class="live-dot"></span></div>
     </div>
-    <div class="stat">
-      <span class="stat-label">节点</span>
-      <div class="stat-value" id="node-count">0</div>
+    <div class="stat" style="flex:1;min-width:40px;text-align:center;">
+      <span class="stat-label" style="font-size:9px;opacity:0.7;">tok/s</span>
+      <div class="stat-value" id="tok-rate" style="font-size:10px;">—</div>
     </div>
-    <div class="stat">
-      <span class="stat-label">连线</span>
-      <div class="stat-value" id="link-count">0</div>
+    <div class="stat" id="mem-recall-stat" style="flex:1;min-width:40px;text-align:center;">
+      <span class="stat-label" style="font-size:9px;opacity:0.7;">召回/h</span>
+      <div class="stat-value" id="mem-recall-rate" style="font-size:10px;">—</div>
     </div>
-    <div class="stat">
-      <span class="stat-label">tok/s</span>
-      <div class="stat-value" id="tok-rate">—</div>
+    <div class="stat" style="flex:1;min-width:40px;text-align:center;">
+      <span class="stat-label" style="font-size:9px;opacity:0.7;">节点</span>
+      <div class="stat-value" id="node-count" style="font-size:10px;">0</div>
     </div>
-    <div class="stat" id="mem-recall-stat" title="近 1 小时记忆召回次数 / 平均拉取条数。点击查看明细">
-      <span class="stat-label">召回/h</span>
-      <div class="stat-value" id="mem-recall-rate">—</div>
-    </div>
-    <div class="stat" id="mem-extract-stat" title="近 1 小时记忆抽取次数 / 平均写入条数。点击查看明细">
-      <span class="stat-label">抽取/h</span>
-      <div class="stat-value" id="mem-extract-rate">—</div>
-    </div>
-    <!-- Token / 成本统计 -->
-    <div class="cost-stats" id="cost-stats" style="display:none;">
-      <div class="cost-row">
-        <span>本轮 tokens</span>
-        <span class="cost-val mono" id="cost-tokens">—</span>
-      </div>
-      <div class="cost-row">
-        <span>缓存命中</span>
-        <span class="cost-val mono" id="cost-cache-hit">—</span>
-      </div>
-      <div class="cost-row">
-        <span>本轮费用</span>
-        <span class="cost-val mono" id="cost-round">—</span>
-      </div>
-      <div class="cost-row">
-        <span>今日累计</span>
-        <span class="cost-val mono" id="cost-today">—</span>
-      </div>
+    <div class="cost-stats" id="cost-stats" style="flex:1 1 100%;display:none;font-size:9px;opacity:0.7;text-align:center;">
+      <span id="cost-tokens" style="margin:0 4px;">—</span>
+      <span id="cost-cache-hit" style="margin:0 4px;">—</span>
+      <span id="cost-round" style="margin:0 4px;">—</span>
+      <span id="cost-today" style="margin:0 4px;">—</span>
     </div>
   </header>
-
-  <!-- 专注帧 UI 已隐藏（后端 focus stack 仍在工作，给 LLM 注入上下文）。
-       要恢复观察面板时把对应 HTML 还原即可——app.js 渲染逻辑保留着，靠 getElementById 返回 null 自动 no-op。 -->
-
-  <div class="stream-meta">
+  <div class="stream-meta" style="padding:4px 8px;font-size:11px;">
     <div>
-      <div class="stream-title-text">自主行动机制 · Tick</div>
-      <div class="stream-subtitle">心跳 · 思考 · 工具</div>
+      <div class="stream-title-text" style="font-size:11px;">Tick 自主心跳</div>
+      <div class="stream-subtitle" style="font-size:9px;opacity:0.6;">每20分钟自动检查记忆/提醒</div>
     </div>
     <span class="pill pill-warm" id="pill-l2">流式传输</span>
   </div>
-
-  <div class="stream">
+  <div class="stream" style="flex:1;">
     <div class="stream-inner" id="si-l2"></div>
   </div>
 </aside>
