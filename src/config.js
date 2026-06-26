@@ -240,6 +240,13 @@ const PROVIDER_CONFIG = {
     models: ZHIPU_MODELS,
     defaultModel: DEFAULT_ZHIPU_MODEL,
   },
+  [GOOGLE_PROVIDER]: {
+    label: 'Google Gemini',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    envVar: 'GOOGLE_API_KEY',
+    models: GOOGLE_MODELS,
+    defaultModel: 'gemini-2.5-flash',
+  },
   [MIMO_PROVIDER]: {
     label: '小米 MiMo',
     baseURL: 'https://api.xiaomimimo.com/v1',
