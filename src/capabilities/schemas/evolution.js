@@ -13,7 +13,8 @@ export const evolutionSchemas = {
           old_string: { type: "string", description: "replace/delete_lines 时：要替换或删除的原始文本（必须精确匹配）。" },
           new_string: { type: "string", description: "replace/insert/append 时：要写入的新文本。" },
           line: { type: "number", description: "insert_after/insert_before 时的目标行号（1-based）。" },
-          description: { type: "string", description: "本次改动的简短说明，作为 git commit message。" }
+          description: { type: "string", description: "本次改动的简短说明，作为 git commit message。" },
+          bump_version: { type: "boolean", description: "是否自动升级版本号(patch+1)。每次修复都应设为true。" }
         },
         required: ["file", "action", "description"]
       }

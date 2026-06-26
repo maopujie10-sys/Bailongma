@@ -1,27 +1,22 @@
 ---
 name: self-evolution
-description: 白龙马自我进化核心技能。投喂源码时自动触发：AST级分析→双校验写入→智能构建→原子升级+30s健康检查→失败自动回滚。非UI框架外所有模块均可自我升级。
+description: 自我进化。投喂源码时自动触发：分析→改源码(自动升版本号)→编译→升级。
 allowed-tools: [Read, Write, Bash, list_source, read_source, write_source, self_build, self_upgrade, self_rollback, self_test]
 metadata:
-  trigger: 投喂源码/要求吸收复刻学习/发现能力缺失/要求升级进化/发现代码缺陷
+  trigger: 投喂源码/吸收功能/升级进化/修复Bug
 ---
 
-# Self-Evolution v3
+# Self-Evolution
 
-## 核心能力
-- read_source 自动解析 imports/functions/classes 结构
-- write_source: add_import / add_function / replace_function / replace(空白容错) / insert / append / delete
-- 每次写入先写 temp → node --check 语法检查 → 导入路径验证 → 通过才原子 rename
-- self_build 自动检测改动范围(仅src走增量,原生模块走全量)
-- self_upgrade: upgrade-launcher detached子进程→等旧进程退出→原子替换→启动新版→30s HTTP健康检查→失败自动回滚快照→重启旧版
-- self_test: 快速扫描源码语法错误+关键文件+Git状态
+## 铁律
+**每次 write_source 修复或加功能，必须传 bump_version: true 自动升级版本号。** 不改版本号用户无法升级。
 
-## 安全网
-1. write_source前git commit备份 2. 语法错→改动丢弃 3. 导入错→拒绝 4. 原子写入(temp→rename) 5. 升级前完整快照 6. 30s健康检查→不健康自动恢复 7. self_rollback→git reset+快照恢复
+## 流程
+Phase 1: list_source + read_source 分析
+Phase 2: write_source(ACTION, bump_version:true) 改源码
+Phase 3: self_test 快速自检
+Phase 4: self_build 编译
+Phase 5: self_upgrade 升级
 
-## 进化流程
-Phase 1: list_source+read_source分析结构
-Phase 2: write_source逐文件修改(add_import/add_function/replace等)
-Phase 3: self_test快速自检
-Phase 4: self_build智能构建
-Phase 5: self_upgrade原子升级+健康检查
+## 做完必须汇报
+格式: ✅ 修复了X，版本vX.Y.Z，编译成功，已推送
