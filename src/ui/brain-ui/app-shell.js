@@ -264,7 +264,12 @@ const createSettingsModal = () => `
               <select class="settings-select" id="settings-provider-select">
                 <option value="auto">自动识别</option>
                 <option value="deepseek">DeepSeek</option>
+                <option value="openai">OpenAI</option>
+                <option value="google">Google Gemini</option>
                 <option value="minimax">MiniMax</option>
+                <option value="qwen">通义千问</option>
+                <option value="moonshot">月之暗面</option>
+                <option value="zhipu">智谱 GLM</option>
                 <option value="mimo">小米 MiMo</option>
                 <option value="custom">自定义端点（本地/其他）</option>
               </select>
