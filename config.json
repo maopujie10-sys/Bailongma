@@ -1,45 +1,4 @@
-﻿{
-    "schemaVersion":  2,
-    "provider":  "deepseek",
-    "social":  {
-
-               },
-    "tts":  {
-                "ttsProvider":  "minimax",
-                "ttsVoiceId":  "male-qn-qingse",
-                "doubaoSpeechRate":  "0",
-                "minimaxKey":  "sk-ws-H.RYDLLYR.kejY.MEYCIQDhW7cgB-PEzTR41J2F_8tON3eCGjNuTjB5izeValN2UwIhAJD2BAD7CP-RC4D_n3g-XgRXO3nbo_7B_IC4ciZ-9n2Z",
-                "edgettsRate":  "100",
-                "edgettsPitch":  "50"
-            },
-    "thinking":  false,
-    "temperature":  0.35,
-    "security":  {
-                     "fileSandbox":  false,
-                     "execSandbox":  false,
-                     "blockedTools":  [
-
-                                      ],
-                     "updatedAt":  "2026-06-24T20:31:13+08:00"
-                 },
-    "network":  {
-                    "allowLanAccess":  true,
-                    "updatedAt":  "2026-06-23T18:01:30+08:00"
-                },
-    "voice":  {
-                  "voiceProvider":  "aliyun",
-                  "aliyunApiKey":  "sk-ws-H.RYDLLYR.kejY.MEYCIQDhW7cgB-PEzTR41J2F_8tON3eCGjNuTjB5izeValN2UwIhAJD2BAD7CP-RC4D_n3g-XgRXO3nbo_7B_IC4ciZ-9n2Z"
-              },
-    "brave_api_key":  "BSA365mfIDFzrtpRFh8ruFa_oyCWXtj",
-    "serper_api_key":  "24b459b33ffd096aca2c05f78345f693a4ad3eca",
-    "tavily_api_key":  "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",
-    "jina_api_key":  "jina_313cba6b468345468a8fda14a1df801cTvv8LICCvO4QKcIXaO-dqCXm5w9s",
-    "minimax_api_key":  "sk-ws-H.RYDLLYR.kejY.MEYCIQDhW7cgB-PEzTR41J2F_8tON3eCGjNuTjB5izeValN2UwIhAJD2BAD7CP-RC4D_n3g-XgRXO3nbo_7B_IC4ciZ-9n2Z",
-    "clawbot":  {
-                    "accountId":  "ba7da4ec6882@im.bot",
-                    "botToken":  "ba7da4ec6882@im.bot:060000f99d09e9653a97723b8187383d1f3f94",
-                    "baseUrl":  "https://ilinkai.weixin.qq.com"
-                },
-    "apiKey":  "sk-6723f8df1e59498499a8e6d42cdfeb18",
-    "model":  "deepseek-v4-pro"
+{
+  "schemaVersion": 2,
+  "provider": "google"
 }
